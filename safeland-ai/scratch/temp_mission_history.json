@@ -1,0 +1,35 @@
+{
+  "missions": [
+    {
+      "mission_id": "SL-20260911-001",
+      "timestamp": "2026-09-11T01:30:00",
+      "drone_used": "Rescue Drone",
+      "input_type": "image",
+      "candidate_count": 3,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 92,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [
+        {
+          "event": "NEW_OBSTACLE",
+          "hazard": "person",
+          "previous_zone": "Zone A",
+          "previous_score": 92,
+          "new_score": 28,
+          "new_recommendation": "Zone B"
+        }
+      ],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone B",
+        "score": 86,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient clearance"
+      ]
+    }
+  ]
+}

@@ -6,6 +6,9 @@ potential sites based on multi-factor decision logic.
 
 from typing import List, Dict, Any, Tuple, Optional
 
+# Module-level safe landing threshold constant
+SAFE_THRESHOLD = 80
+
 
 def check_clearance(
     candidate_zone: Dict[str, Any],
@@ -356,5 +359,44 @@ def evaluate_landing_decision(
         "emergency_candidate": emergency_cand,
         "emergency_reason": emergency_reason
     }
+
+
+def hazard_intersects_zone(hazard_bbox: List[int], zone_bbox: List[int], padding: int = 15) -> bool:
+    """Determine whether a detected hazard bounding box intersects or overlaps a candidate landing zone.
+
+    Args:
+        hazard_bbox: Bounding box [x1, y1, x2, y2] of hazard.
+        zone_bbox: Bounding box [x1, y1, x2, y2] of landing zone.
+        padding: Pixel safety margin padding applied to hazard bounding box.
+
+    Returns:
+        True if hazard bounding box intersects or enters the candidate zone area, False otherwise.
+    """
+    if not hazard_bbox or not zone_bbox or len(hazard_bbox) != 4 or len(zone_bbox) != 4:
+        return False
+
+    try:
+        x1_h, y1_h, x2_h, y2_h = [int(v) for v in hazard_bbox]
+        x1_z, y1_z, x2_z, y2_z = [int(v) for v in zone_bbox]
+
+        # Expand hazard box with safety padding margin
+        hx1 = max(0, x1_h - padding)
+        hy1 = max(0, y1_h - padding)
+        hx2 = x2_h + padding
+        hy2 = y2_h + padding
+
+        # Calculate intersection rectangle coordinates
+        ix1 = max(x1_z, hx1)
+        iy1 = max(y1_z, hy1)
+        ix2 = min(x2_z, hx2)
+        iy2 = min(y2_z, hy2)
+
+        inter_w = max(0, ix2 - ix1)
+        inter_h = max(0, iy2 - iy1)
+
+        return (inter_w * inter_h) > 0
+    except Exception:
+        return False
+
 
 

@@ -1,3 +1,233 @@
 {
-  "missions": []
+  "missions": [
+    {
+      "mission_id": "SL-20260911-001",
+      "timestamp": "2026-09-11T01:15:00",
+      "drone_used": "Rescue Drone",
+      "input_type": "image",
+      "candidate_count": 3,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 92,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 92,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance (Required: 1.70m, Available: ~4.52m × 4.52m)",
+        "✓ No nearby dynamic hazards detected inside perimeter",
+        "✓ Large landing margin relative to drone dimensions"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-002",
+      "timestamp": "2026-09-11T01:22:00",
+      "drone_used": "Heavy Cargo Drone",
+      "input_type": "video",
+      "candidate_count": 3,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 92,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [
+        {
+          "event": "NEW_OBSTACLE",
+          "hazard": "person",
+          "previous_zone": "Zone A",
+          "previous_score": 92,
+          "new_score": 28,
+          "new_recommendation": "Zone B"
+        },
+        {
+          "event": "RECOMMENDATION_CHANGED",
+          "hazard": "person",
+          "previous_zone": "Zone A",
+          "previous_score": 92,
+          "new_score": 28,
+          "new_recommendation": "Zone B"
+        }
+      ],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone B",
+        "score": 86,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance (Required: 4.24m, Available: ~4.52m × 4.52m)",
+        "✓ Clear of dynamic hazards",
+        "✓ Highest ranked safe candidate following Zone A score drop"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-003",
+      "timestamp": "2026-09-11T01:28:00",
+      "drone_used": "Rescue Drone",
+      "input_type": "camera",
+      "candidate_count": 2,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": []
+    },
+    {
+      "mission_id": "SL-20260911-004",
+      "timestamp": "2026-09-11T03:57:01",
+      "drone_used": "Rescue Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-005",
+      "timestamp": "2026-09-11T03:59:04",
+      "drone_used": "Rescue Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-006",
+      "timestamp": "2026-09-11T03:59:41",
+      "drone_used": "Rescue Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-007",
+      "timestamp": "2026-09-11T04:00:25",
+      "drone_used": "Rescue Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-008",
+      "timestamp": "2026-09-11T04:05:30",
+      "drone_used": "Rescue Drone",
+      "input_type": "image",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-009",
+      "timestamp": "2026-09-11T04:10:45",
+      "drone_used": "Rescue Drone",
+      "input_type": "image",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    }
+  ]
 }

@@ -18,7 +18,10 @@ import core.landing_engine as landing_engine
 import core.scoring as scoring
 import core.history as history
 import core.input_handler as input_handler
+import core.chat_assistant as chat_assistant
+import core.voice_assistant as voice_assistant
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 
 def draw_analysis_dashboard_frame(
@@ -395,6 +398,9 @@ st.markdown(custom_css, unsafe_allow_html=True)
 if "current_page" not in st.session_state:
     st.session_state["current_page"] = "Dashboard"
 
+if "active_page" not in st.session_state:
+    st.session_state["active_page"] = st.session_state["current_page"]
+
 if "drone_selection_mode" not in st.session_state:
     st.session_state["drone_selection_mode"] = "Default"
 
@@ -404,6 +410,15 @@ if "current_frame" not in st.session_state:
 if "input_source" not in st.session_state:
     st.session_state["input_source"] = None
 
+if "active_input_type" not in st.session_state:
+    st.session_state["active_input_type"] = st.session_state.get("input_source")
+
+if "last_camera_id" not in st.session_state:
+    st.session_state["last_camera_id"] = None
+
+if "last_video_frame_idx" not in st.session_state:
+    st.session_state["last_video_frame_idx"] = None
+
 if "analysis_requested" not in st.session_state:
     st.session_state["analysis_requested"] = False
 
@@ -412,6 +427,142 @@ if "pending_uploaded_image" not in st.session_state:
 
 if "emergency_mode" not in st.session_state:
     st.session_state["emergency_mode"] = False
+
+if "previous_ranked_zones" not in st.session_state:
+    st.session_state["previous_ranked_zones"] = None
+
+if "previous_recommended_zone" not in st.session_state:
+    st.session_state["previous_recommended_zone"] = None
+
+if "previous_top_score" not in st.session_state:
+    st.session_state["previous_top_score"] = None
+
+if "previous_decision" not in st.session_state:
+    st.session_state["previous_decision"] = None
+
+if "previous_hazards" not in st.session_state:
+    st.session_state["previous_hazards"] = None
+
+if "re_eval_alerts" not in st.session_state:
+    st.session_state["re_eval_alerts"] = []
+
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
+
+if "current_mission_id" not in st.session_state:
+    st.session_state["current_mission_id"] = None
+
+if "current_mission_record" not in st.session_state:
+    st.session_state["current_mission_record"] = None
+
+
+def reset_previous_analysis_state():
+    """Reset previous analysis state for new input media intakes."""
+    st.session_state["previous_ranked_zones"] = None
+    st.session_state["previous_recommended_zone"] = None
+    st.session_state["previous_top_score"] = None
+    st.session_state["previous_decision"] = None
+    st.session_state["previous_hazards"] = None
+    st.session_state["re_eval_alerts"] = []
+    st.session_state["current_mission_id"] = None
+    st.session_state["current_mission_record"] = None
+
+
+def compute_re_evaluation_alerts(
+    curr_hazards: List[Dict[str, Any]],
+    curr_ranked_zones: List[Dict[str, Any]],
+    curr_decision: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """Compare current frame analysis with previous analysis in session state and generate re-evaluation alert events."""
+    alerts = []
+    
+    prev_decision = st.session_state.get("previous_decision")
+    prev_rec = st.session_state.get("previous_recommended_zone")
+    
+    if not prev_decision or not isinstance(prev_decision, dict):
+        return alerts
+
+    prev_dec_type = prev_decision.get("decision")
+    prev_rec_label = prev_rec.get("label") if prev_rec else None
+    prev_rec_score = prev_rec.get("score", 0) if prev_rec else 0
+    prev_rec_bbox = prev_rec.get("bbox") if prev_rec else None
+
+    curr_dec_type = curr_decision.get("decision")
+    curr_rec = curr_decision.get("zone") if curr_dec_type == "RECOMMEND" else None
+    curr_rec_label = curr_decision.get("recommended_zone")
+    curr_rec_score = curr_decision.get("score", 0) if curr_rec else 0
+
+    # 1. NEW HAZARD INTERSECTION CHECK against previous recommended zone
+    if prev_rec_bbox and len(prev_rec_bbox) == 4:
+        new_hazards_in_zone = []
+        for hz in curr_hazards:
+            hz_box = hz.get("bbox")
+            hz_class = hz.get("class_name", "hazard")
+            if landing_engine.hazard_intersects_zone(hz_box, prev_rec_bbox):
+                new_hazards_in_zone.append(hz_class)
+        
+        if new_hazards_in_zone:
+            hz_str = ", ".join(sorted(list(set(new_hazards_in_zone))))
+            alerts.append({
+                "type": "NEW_OBSTACLE",
+                "title": "🚨 NEW OBSTACLE DETECTED",
+                "message": f"New obstacle ({hz_str}) detected near previous recommended landing zone ({prev_rec_label}).",
+                "color": "amber"
+            })
+
+    # 2. DECISION / RECOMMENDATION CHANGE DETECTION
+    # CASE A: Same recommended zone, score updated
+    if prev_dec_type == "RECOMMEND" and curr_dec_type == "RECOMMEND" and prev_rec_label == curr_rec_label:
+        if prev_rec_score != curr_rec_score:
+            alerts.append({
+                "type": "SCORE_UPDATE",
+                "title": f"Zone {prev_rec_label} Safety Score Updated",
+                "message": f"Zone {prev_rec_label} safety score updated: {prev_rec_score} → {curr_rec_score}",
+                "color": "info"
+            })
+
+    # CASE B: Recommendation changed (e.g. Zone A -> Zone B)
+    elif prev_dec_type == "RECOMMEND" and curr_dec_type == "RECOMMEND" and prev_rec_label != curr_rec_label:
+        prev_z_in_curr = next((z for z in curr_ranked_zones if z.get("label") == prev_rec_label), None)
+        curr_score_of_prev = prev_z_in_curr.get("score", 0) if prev_z_in_curr else 0
+
+        alerts.append({
+            "type": "RECOMMENDATION_CHANGED",
+            "title": "🚨 LANDING RECOMMENDATION CHANGED",
+            "message": f"Previous recommended landing zone {prev_rec_label} score dropped: {prev_rec_score} → {curr_score_of_prev}.",
+            "new_recommendation": curr_rec_label,
+            "prev_zone": prev_rec_label,
+            "prev_score": prev_rec_score,
+            "curr_prev_score": curr_score_of_prev,
+            "color": "red"
+        })
+
+    # CASE C: Previous = Zone A, Current = NO SAFE ZONE
+    elif prev_dec_type == "RECOMMEND" and curr_dec_type == "NO_SAFE_ZONE":
+        prev_z_in_curr = next((z for z in curr_ranked_zones if z.get("label") == prev_rec_label), None)
+        curr_score_of_prev = prev_z_in_curr.get("score", 0) if prev_z_in_curr else 0
+
+        alerts.append({
+            "type": "NO_LONGER_SAFE",
+            "title": "🚨 PREVIOUS LANDING ZONE NO LONGER SAFE",
+            "message": f"Previous recommended zone {prev_rec_label} score dropped: {prev_rec_score} → {curr_score_of_prev}. Safety threshold not satisfied.",
+            "prev_zone": prev_rec_label,
+            "prev_score": prev_rec_score,
+            "curr_prev_score": curr_score_of_prev,
+            "color": "red"
+        })
+
+    # CASE D: Previous = NO SAFE ZONE, Current = Zone B (Safe candidate now available)
+    elif prev_dec_type == "NO_SAFE_ZONE" and curr_dec_type == "RECOMMEND":
+        alerts.append({
+            "type": "NEW_SAFE_AVAILABLE",
+            "title": "🟢 SAFE LANDING CANDIDATE NOW AVAILABLE",
+            "message": f"Valid safe landing zone detected: {curr_rec_label} (Score: {curr_rec_score}/100)",
+            "new_recommendation": curr_rec_label,
+            "color": "green"
+        })
+
+    return alerts
 
 # Sidebar Demo Settings
 st.sidebar.markdown("### ⚙️ Operational Settings")
@@ -443,26 +594,34 @@ with nav_col1:
     st.markdown("### 🚁 SAFELAND AI")
 
 with nav_col2:
-    if st.button("Dashboard", use_container_width=True, type="primary" if st.session_state["current_page"] == "Dashboard" else "secondary"):
+    if st.button("Dashboard", use_container_width=True, type="primary" if st.session_state.get("current_page") == "Dashboard" else "secondary"):
         st.session_state["current_page"] = "Dashboard"
+        st.session_state["active_page"] = "Dashboard"
         st.rerun()
 
 with nav_col3:
-    if st.button("Drone Profiles", use_container_width=True, type="primary" if st.session_state["current_page"] == "Drone Profiles" else "secondary"):
+    if st.button("Drone Profiles", use_container_width=True, type="primary" if st.session_state.get("current_page") == "Drone Profiles" else "secondary"):
         st.session_state["current_page"] = "Drone Profiles"
+        st.session_state["active_page"] = "Drone Profiles"
         st.rerun()
 
 with nav_col4:
-    if st.button("Missions", use_container_width=True, disabled=True):
-        pass
+    if st.button("Missions", use_container_width=True, type="primary" if st.session_state.get("current_page") == "Missions" else "secondary"):
+        st.session_state["current_page"] = "Missions"
+        st.session_state["active_page"] = "Missions"
+        st.rerun()
 
 with nav_col5:
-    if st.button("History", use_container_width=True, disabled=True):
-        pass
+    if st.button("History", use_container_width=True, type="primary" if st.session_state.get("current_page") == "History" else "secondary"):
+        st.session_state["current_page"] = "History"
+        st.session_state["active_page"] = "History"
+        st.rerun()
 
 with nav_col6:
-    if st.button("Settings", use_container_width=True, disabled=True):
-        pass
+    if st.button("Settings", use_container_width=True, type="primary" if st.session_state.get("current_page") == "Settings" else "secondary"):
+        st.session_state["current_page"] = "Settings"
+        st.session_state["active_page"] = "Settings"
+        st.rerun()
 
 st.markdown("---")
 
@@ -596,15 +755,21 @@ if st.session_state["current_page"] == "Dashboard":
             if input_handler.is_valid_frame(frame):
                 st.session_state["pending_uploaded_image"] = frame
                 
-                # Explicit confirmation button
+                # Explicit confirmation button (Rule 1 & Rule 6)
                 if st.button("USE THIS IMAGE", type="primary", key="btn_use_uploaded_image", use_container_width=True):
                     st.session_state["current_frame"] = frame.copy()
+                    st.session_state["active_input_type"] = "image"
                     st.session_state["input_source"] = "image"
+                    
+                    reset_previous_analysis_state()
                     st.session_state.pop("scene_analysis_result", None)
                     st.session_state.pop("clearance_results", None)
                     st.session_state.pop("ranked_zones", None)
-                    st.success("Image selected for analysis.")
-                    st.toast("Image selected for analysis.")
+                    st.session_state.pop("landing_decision", None)
+                    st.session_state.pop("selected_area_result", None)
+                    
+                    st.success("Uploaded image selected as active frame.")
+                    st.toast("Active Source: Uploaded Image")
                     st.rerun()
             else:
                 st.error("Unable to read the selected image.")
@@ -630,13 +795,33 @@ if st.session_state["current_page"] == "Dashboard":
                     "Select Video Frame",
                     min_value=0,
                     max_value=total_frames - 1,
-                    value=0,
+                    value=st.session_state.get("last_video_frame_idx", 0),
                     key="input_vid_slider"
                 )
                 vid_frame, frame_err = input_handler.extract_video_frame(temp_path, selected_idx)
+                
                 if input_handler.is_valid_frame(vid_frame):
-                    st.session_state["current_frame"] = vid_frame
-                    st.session_state["input_source"] = "video"
+                    video_slider_changed = (selected_idx != st.session_state.get("last_video_frame_idx"))
+                    btn_use_vid = st.button("USE THIS VIDEO FRAME", type="primary", key="btn_use_video_frame", use_container_width=True)
+                    
+                    if btn_use_vid or video_slider_changed:
+                        st.session_state["current_frame"] = vid_frame.copy()
+                        st.session_state["active_input_type"] = "video"
+                        st.session_state["input_source"] = "video"
+                        st.session_state["last_video_frame_idx"] = selected_idx
+                        
+                        reset_previous_analysis_state()
+                        st.session_state.pop("scene_analysis_result", None)
+                        st.session_state.pop("clearance_results", None)
+                        st.session_state.pop("ranked_zones", None)
+                        st.session_state.pop("landing_decision", None)
+                        st.session_state.pop("selected_area_result", None)
+                        st.rerun()
+
+                    elif st.session_state.get("active_input_type") == "video":
+                        st.session_state["current_frame"] = vid_frame
+                        st.session_state["last_video_frame_idx"] = selected_idx
+
                     st.caption(f"Frame {selected_idx + 1} of {total_frames} (FPS: {fps:.1f})")
                 elif frame_err:
                     st.error(frame_err)
@@ -653,11 +838,32 @@ if st.session_state["current_page"] == "Dashboard":
         camera_file = st.camera_input("Capture live camera frame", key="input_camera_widget", label_visibility="collapsed")
         
         if camera_file is not None:
+            current_cam_id = camera_file.file_id if hasattr(camera_file, "file_id") else (camera_file.name + str(len(camera_file.getvalue())))
+            cam_captured_new = (current_cam_id != st.session_state.get("last_camera_id"))
+            
             cam_frame, cam_err = input_handler.process_camera_input(camera_file)
+            
             if input_handler.is_valid_frame(cam_frame):
-                st.session_state["current_frame"] = cam_frame
-                st.session_state["input_source"] = "camera"
-                st.success("Live camera frame captured successfully.")
+                btn_use_cam = st.button("USE LIVE CAMERA FRAME", type="primary", key="btn_use_camera_frame", use_container_width=True)
+                
+                if cam_captured_new or btn_use_cam:
+                    st.session_state["current_frame"] = cam_frame.copy()
+                    st.session_state["active_input_type"] = "camera"
+                    st.session_state["input_source"] = "camera"
+                    st.session_state["last_camera_id"] = current_cam_id
+                    
+                    reset_previous_analysis_state()
+                    st.session_state.pop("scene_analysis_result", None)
+                    st.session_state.pop("clearance_results", None)
+                    st.session_state.pop("ranked_zones", None)
+                    st.session_state.pop("landing_decision", None)
+                    st.session_state.pop("selected_area_result", None)
+                    
+                    st.success("Live camera frame captured & selected.")
+                    st.toast("Active Source: Live Camera")
+                    st.rerun()
+                elif st.session_state.get("active_input_type") == "camera":
+                    st.session_state["current_frame"] = cam_frame
             else:
                 st.error(cam_err or "Unable to process the captured camera frame.")
 
@@ -667,20 +873,21 @@ if st.session_state["current_page"] == "Dashboard":
     st.markdown("### 🖼️ CURRENT FRAME")
 
     current_frame = input_handler.get_current_frame()
+    active_src_type = st.session_state.get("active_input_type") or st.session_state.get("input_source")
     
     if input_handler.is_valid_frame(current_frame):
         h, w, _ = current_frame.shape
         source_label_map = {
-            "image": "Upload Image",
-            "video": "Upload Video",
+            "image": "Uploaded Image",
+            "video": "Video Frame",
             "camera": "Live Camera"
         }
-        source_display = source_label_map.get(st.session_state.get("input_source"), "External Intake")
+        source_display = source_label_map.get(active_src_type, "External Intake")
 
         st.markdown(f"""
         <div class="content-card" style="padding: 24px;">
             <div style="display: flex; gap: 24px; flex-wrap: wrap; margin-bottom: 16px;">
-                <div><strong>Source:</strong> <span style="color: var(--accent-blue);">{source_display}</span></div>
+                <div><strong>Active Source:</strong> <span style="color: var(--accent-blue); font-weight: 700;">{source_display}</span></div>
                 <div><strong>Resolution:</strong> {w} × {h} pixels</div>
                 <div><strong>Status:</strong> <span style="color: var(--status-safe);">Ready for analysis</span></div>
             </div>
@@ -688,7 +895,7 @@ if st.session_state["current_page"] == "Dashboard":
         """, unsafe_allow_html=True)
 
         rgb_preview = cv2.cvtColor(current_frame, cv2.COLOR_BGR2RGB)
-        st.image(rgb_preview, caption=f"Active Frame Preview ({w}×{h})", width="stretch")
+        st.image(rgb_preview, caption=f"Active Frame Preview — {source_display} ({w}×{h})", width="stretch")
     else:
         st.info("No valid intake frame selected yet. Upload an image, select a video frame, or capture from live camera above.")
 
@@ -698,53 +905,194 @@ if st.session_state["current_page"] == "Dashboard":
     st.markdown("### 🚀 AI Decision Pipeline")
     
     frame_ready = input_handler.is_valid_frame(current_frame)
+    has_prev = bool(st.session_state.get("previous_decision")) and (st.session_state.get("input_source") in ["video", "camera"])
+    btn_label = "🔄 RE-ANALYZE CURRENT FRAME" if has_prev else "🚀 START AI ANALYSIS"
     
-    if st.button("🚀 START AI ANALYSIS", type="primary", disabled=not frame_ready, use_container_width=True, key="btn_start_ai_analysis"):
+    if st.button(btn_label, type="primary", disabled=not frame_ready, use_container_width=True, key="btn_start_ai_analysis"):
         with st.spinner("Analyzing scene hazards & evaluating open landing candidates..."):
             analysis_res = scene_analysis.analyze_scene(current_frame)
             st.session_state["scene_analysis_result"] = analysis_res
-            st.toast("Scene Understanding analysis complete!")
+
+            hazards = analysis_res.get("hazards", [])
+            candidates = analysis_res.get("candidate_zones", [])
+
+            clearance_results = []
+            ranked_zones = []
+            if candidates and selected_drone and input_handler.is_valid_frame(current_frame):
+                clearance_results = landing_engine.evaluate_all_candidate_clearances(
+                    candidate_zones=candidates,
+                    drone_profile=selected_drone,
+                    frame_shape=current_frame.shape,
+                    estimated_ground_width_m=estimated_ground_width_m
+                )
+                st.session_state["clearance_results"] = clearance_results
+
+                ranked_zones = scoring.rank_zones(
+                    candidate_zones=candidates,
+                    drone_profile=selected_drone,
+                    hazards=hazards,
+                    clearance_results=clearance_results,
+                    frame_shape=current_frame.shape
+                )
+                st.session_state["ranked_zones"] = ranked_zones
+
+            decision_res = landing_engine.evaluate_landing_decision(
+                ranked_zones=ranked_zones,
+                safe_threshold=landing_engine.SAFE_THRESHOLD,
+                emergency_mode=emergency_mode
+            )
+            st.session_state["landing_decision"] = decision_res
+
+            # Calculate Re-Evaluation Alerts if previous analysis exists for video or camera
+            if st.session_state.get("previous_decision") and st.session_state.get("input_source") in ["video", "camera"]:
+                alerts = compute_re_evaluation_alerts(hazards, ranked_zones, decision_res)
+                st.session_state["re_eval_alerts"] = alerts
+                if alerts:
+                    voice_assistant.check_and_speak_critical_alerts(alerts)
+            else:
+                st.session_state["re_eval_alerts"] = []
+
+            # -------------------------------------------------------------
+            # MISSION HISTORY LOGGING & PERSISTENCE
+            # -------------------------------------------------------------
+            curr_dec_type = decision_res.get("decision")
+            rec_label = decision_res.get("recommended_zone")
+            rec_score = decision_res.get("score", 0)
+            rec_status = decision_res.get("status", "SAFE")
+            
+            if curr_dec_type == "RECOMMEND":
+                current_rec_dict = {"zone": rec_label, "score": rec_score, "status": rec_status}
+                current_final_status = "RECOMMENDED"
+            elif curr_dec_type == "EMERGENCY_FALLBACK":
+                current_rec_dict = {"zone": rec_label, "score": rec_score, "status": "EMERGENCY_CANDIDATE"}
+                current_final_status = "EMERGENCY_CANDIDATE"
+            else: # NO_SAFE_ZONE
+                top_score = ranked_zones[0].get("score", 0) if ranked_zones else 0
+                current_rec_dict = {"zone": None, "score": top_score, "status": "NO_SAFE_ZONE"}
+                current_final_status = "NO_SAFE_ZONE"
+
+            top_reasons = []
+            if ranked_zones:
+                top_z = next((z for z in ranked_zones if z.get("label") == rec_label), ranked_zones[0])
+                top_reasons = top_z.get("reasons", [])
+
+            is_ongoing_mission = (has_prev and bool(st.session_state.get("current_mission_record")))
+
+            if is_ongoing_mission:
+                mission_record = st.session_state["current_mission_record"]
+                # Append obstacle update events if alerts exist
+                for alert in st.session_state.get("re_eval_alerts", []):
+                    a_type = alert.get("type")
+                    if a_type in ["NEW_OBSTACLE", "RECOMMENDATION_CHANGED", "NO_LONGER_SAFE", "NEW_SAFE_AVAILABLE"]:
+                        msg_str = alert.get("message", "")
+                        hz_name = "obstacle"
+                        if "(" in msg_str and ")" in msg_str:
+                            try:
+                                hz_name = msg_str.split("(")[1].split(")")[0]
+                            except Exception:
+                                pass
+                        
+                        mission_record["obstacle_updates"].append({
+                            "event": a_type,
+                            "hazard": hz_name,
+                            "previous_zone": alert.get("prev_zone", st.session_state.get("previous_recommended_zone")),
+                            "previous_score": alert.get("prev_score", st.session_state.get("previous_top_score", 0)),
+                            "new_score": alert.get("curr_prev_score", rec_score),
+                            "new_recommendation": alert.get("new_recommendation", rec_label)
+                        })
+                
+                mission_record["final_status"] = current_final_status
+                mission_record["final_recommendation"] = current_rec_dict
+                mission_record["top_zone_reasons"] = top_reasons
+                
+                st.session_state["current_mission_record"] = mission_record
+                history.update_mission(mission_record)
+            else:
+                new_mission_id = history.generate_mission_id()
+                st.session_state["current_mission_id"] = new_mission_id
+                
+                mission_record = {
+                    "mission_id": new_mission_id,
+                    "timestamp": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+                    "drone_used": selected_drone.get("name", "Rescue Drone") if selected_drone else "Rescue Drone",
+                    "input_type": st.session_state.get("input_source", "unknown"),
+                    "candidate_count": len(candidates),
+                    "initial_recommendation": current_rec_dict,
+                    "obstacle_updates": [],
+                    "final_status": current_final_status,
+                    "final_recommendation": current_rec_dict,
+                    "top_zone_reasons": top_reasons
+                }
+                
+                st.session_state["current_mission_record"] = mission_record
+                history.append_mission(mission_record)
+
+            # Update session state with current analysis AFTER comparison & history logging
+            curr_rec = decision_res.get("zone") if decision_res.get("decision") == "RECOMMEND" else None
+            st.session_state["previous_ranked_zones"] = ranked_zones
+            st.session_state["previous_recommended_zone"] = curr_rec
+            st.session_state["previous_top_score"] = decision_res.get("score", 0)
+            st.session_state["previous_decision"] = decision_res
+            st.session_state["previous_hazards"] = hazards
+
+            st.toast("Scene Understanding & Re-Evaluation complete!")
 
     # Display Main Analysis Dashboard if analysis results exist
     if "scene_analysis_result" in st.session_state and st.session_state["scene_analysis_result"]:
         res = st.session_state["scene_analysis_result"]
         hazards = res.get("hazards", [])
         candidates = res.get("candidate_zones", [])
-
-        # Evaluate clearances & safety scores
-        clearance_results = []
-        ranked_zones = []
-        if candidates and selected_drone and input_handler.is_valid_frame(current_frame):
-            clearance_results = landing_engine.evaluate_all_candidate_clearances(
-                candidate_zones=candidates,
-                drone_profile=selected_drone,
-                frame_shape=current_frame.shape,
-                estimated_ground_width_m=estimated_ground_width_m
-            )
-            st.session_state["clearance_results"] = clearance_results
-
-            ranked_zones = scoring.rank_zones(
-                candidate_zones=candidates,
-                drone_profile=selected_drone,
-                hazards=hazards,
-                clearance_results=clearance_results,
-                frame_shape=current_frame.shape
-            )
-            st.session_state["ranked_zones"] = ranked_zones
-
-        # Safe Landing Threshold & Emergency Mode Evaluation Logic
-        decision_res = landing_engine.evaluate_landing_decision(
-            ranked_zones=ranked_zones,
-            safe_threshold=landing_engine.SAFE_THRESHOLD,
-            emergency_mode=emergency_mode
-        )
-        st.session_state["landing_decision"] = decision_res
+        clearance_results = st.session_state.get("clearance_results", [])
+        ranked_zones = st.session_state.get("ranked_zones", [])
+        decision_res = st.session_state.get("landing_decision", {})
 
         recommended_zone = decision_res.get("zone") if decision_res.get("decision") == "RECOMMEND" else None
         rec_label = decision_res.get("recommended_zone")
 
         st.markdown("---")
         st.markdown("### 🎯 MAIN LANDING ANALYSIS DASHBOARD")
+
+        # RENDER DYNAMIC RE-EVALUATION ALERTS BANNER
+        if st.session_state.get("re_eval_alerts"):
+            for alert in st.session_state["re_eval_alerts"]:
+                a_type = alert.get("type")
+                a_title = alert.get("title", "")
+                a_msg = alert.get("message", "")
+                a_new_rec = alert.get("new_recommendation")
+
+                if a_type == "NEW_OBSTACLE":
+                    st.warning(f"**{a_title}** — {a_msg}")
+                elif a_type == "RECOMMENDATION_CHANGED":
+                    prev_z = alert.get("prev_zone", "Zone")
+                    prev_s = alert.get("prev_score", 0)
+                    curr_s = alert.get("curr_prev_score", 0)
+                    st.error(f"""
+                    ### {a_title}
+                    **{prev_z}: {prev_s} → {curr_s}**
+                    
+                    🔄 *Re-evaluating landing zones...*
+                    
+                    🏆 **New recommended landing zone: {a_new_rec}**
+                    """)
+                elif a_type == "NO_LONGER_SAFE":
+                    prev_z = alert.get("prev_zone", "Zone")
+                    prev_s = alert.get("prev_score", 0)
+                    curr_s = alert.get("curr_prev_score", 0)
+                    st.error(f"""
+                    ### {a_title}
+                    **{prev_z}: {prev_s} → {curr_s}**
+                    
+                    🔴 **NO SAFE LANDING ZONE**
+                    
+                    *Abort Landing / Continue Search*
+                    """)
+                elif a_type == "NEW_SAFE_AVAILABLE":
+                    st.success(f"""
+                    ### {a_title}
+                    🏆 **Recommended Zone: {a_new_rec}**
+                    """)
+                elif a_type == "SCORE_UPDATE":
+                    st.info(a_msg)
 
         # Analysis Mode Toggle
         analysis_mode = st.radio(
@@ -889,22 +1237,41 @@ if st.session_state["current_page"] == "Dashboard":
                     """, unsafe_allow_html=True)
 
                 else:
-                    highest_name = decision_res.get("highest_candidate") or "None"
+                    cand_count = len(candidates)
+                    clearance_passed_count = sum(1 for c in clearance_results if (c.get("passed", False) or c.get("clearance", {}).get("passed", False)))
+
+                    if cand_count == 0:
+                        card_title = "🔴 NO LANDING CANDIDATE DETECTED"
+                        card_subtitle = "🔴 No landing candidate detected in the current frame."
+                    elif clearance_passed_count == 0:
+                        card_title = "🔴 NO SAFE LANDING ZONE"
+                        card_subtitle = "Candidate regions were detected, but none satisfy the selected drone's clearance requirement."
+                    else:
+                        card_title = "🔴 NO SAFE LANDING ZONE"
+                        card_subtitle = "Candidate zones were detected, but none satisfy the required safety threshold."
+
+                    highest_name = decision_res.get("highest_candidate") or (candidates[0].get("label") if candidates else "None")
                     highest_score = decision_res.get("highest_score", 0)
 
-                    st.markdown(f"""
-                    <div style="background: linear-gradient(135deg, #7F1D1D 0%, #991B1B 100%); border: 1px solid #EF4444; border-radius: 14px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(239,68,68,0.2);">
-                        <div style="font-size: 0.9rem; font-weight: 800; color: #FCA5A5; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">
-                            🔴 NO SAFE LANDING ZONE
-                        </div>
+                    highest_info_html = ""
+                    if cand_count > 0:
+                        highest_info_html = f"""
                         <div style="font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 4px;">
                             Highest Candidate: <strong>{highest_name}</strong>
                         </div>
                         <div style="font-size: 1.25rem; font-weight: 800; color: #F8FAFC; margin-bottom: 10px;">
                             Score: {highest_score} <span style="font-size: 0.85rem; color: #FCA5A5;">/ 100</span>
                         </div>
-                        <div style="font-size: 0.85rem; color: #FEE2E2; margin-bottom: 8px;">
-                            Safety threshold not satisfied.
+                        """
+
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #7F1D1D 0%, #991B1B 100%); border: 1px solid #EF4444; border-radius: 14px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(239,68,68,0.2);">
+                        <div style="font-size: 0.9rem; font-weight: 800; color: #FCA5A5; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">
+                            {card_title}
+                        </div>
+                        {highest_info_html}
+                        <div style="font-size: 0.88rem; color: #FEE2E2; margin-bottom: 12px; line-height: 1.4;">
+                            {card_subtitle}
                         </div>
                         <div style="background-color: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 10px 14px; color: #FEE2E2; font-size: 0.85rem; font-weight: 700;">
                             Recommendation: Abort Landing / Continue Search
@@ -1000,6 +1367,96 @@ if st.session_state["current_page"] == "Dashboard":
                             </ul>
                         </div>
                         """, unsafe_allow_html=True)
+
+                # -------------------------------------------------------------
+                # GROUNDED CHAT & VOICE ASSISTANT SECTION
+                # -------------------------------------------------------------
+                st.markdown("---")
+                st.markdown("#### 💬 Ask SafeLand AI")
+
+                prompt_to_submit = None
+
+                # Voice Command Mic Button & Quick Suggestions Layout
+                v_hdr1, v_hdr2 = st.columns([3, 1])
+                with v_hdr1:
+                    st.caption("Quick Questions:")
+                with v_hdr2:
+                    voice_clicked = st.button("🎙️ Speak", key="btn_voice_command", use_container_width=True, help="Capture voice command via microphone")
+
+                q_col1, q_col2, q_col3 = st.columns(3)
+
+                with q_col1:
+                    if st.button("Why Zone A?", key="chat_btn_why_a", use_container_width=True):
+                        prompt_to_submit = "Why Zone A?"
+
+                with q_col2:
+                    if st.button("Analyze Zone B", key="chat_btn_analyze_b", use_container_width=True):
+                        prompt_to_submit = "Analyze Zone B"
+
+                with q_col3:
+                    if st.button("Detected hazards?", key="chat_btn_hazards", use_container_width=True):
+                        prompt_to_submit = "Detected hazards?"
+
+                # Voice Recognition Trigger
+                if voice_clicked:
+                    with st.spinner("🎙️ Listening... Speak your command..."):
+                        transcription, err_msg = voice_assistant.listen_and_transcribe(timeout=3)
+                    if transcription:
+                        st.success(f"🎙️ Voice Command Captured: \"{transcription}\"")
+                        prompt_to_submit = transcription
+                    else:
+                        st.warning(f"⚠️ {err_msg or 'Voice capture unavailable. Please use text chat.'}")
+
+                with st.form("safeland_chat_form", clear_on_submit=True):
+                    user_input = st.text_input(
+                        "Chat Prompt",
+                        placeholder="Ask about landing safety or click 🎙️ Speak...",
+                        label_visibility="collapsed",
+                        key="chat_input_text"
+                    )
+                    submit_chat = st.form_submit_button("Send 💬", use_container_width=True, type="primary")
+                    if submit_chat and user_input.strip():
+                        prompt_to_submit = user_input.strip()
+
+                if prompt_to_submit:
+                    st.session_state["chat_history"].append({"role": "user", "content": prompt_to_submit})
+
+                    curr_ranked = st.session_state.get("ranked_zones", [])
+                    curr_hazards = res.get("hazards", []) if "scene_analysis_result" in st.session_state and st.session_state["scene_analysis_result"] else []
+                    curr_decision = st.session_state.get("landing_decision", {})
+                    curr_clearance = st.session_state.get("clearance_results", [])
+
+                    bot_reply = chat_assistant.answer_question(
+                        question=prompt_to_submit,
+                        ranked_zones=curr_ranked,
+                        hazards=curr_hazards,
+                        landing_decision=curr_decision,
+                        clearance_results=curr_clearance,
+                        emergency_mode=emergency_mode
+                    )
+
+                    st.session_state["chat_history"].append({"role": "assistant", "content": bot_reply})
+                    
+                    # Speak assistant's reply aloud offline (non-blocking)
+                    voice_assistant.speak_text_offline(bot_reply)
+
+                    st.rerun()
+
+                if st.session_state.get("chat_history"):
+                    st.markdown("<div style='max-height: 280px; overflow-y: auto; background-color: #0B0E17; border: 1px solid #1E2638; border-radius: 12px; padding: 12px; margin-top: 10px;'>", unsafe_allow_html=True)
+                    for msg in st.session_state["chat_history"][-6:]:
+                        role = msg.get("role")
+                        content = msg.get("content", "")
+                        if role == "user":
+                            st.markdown(f"<div style='text-align: right; margin-bottom: 8px;'><span style='background-color: #1E293B; color: #F8FAFC; padding: 6px 12px; border-radius: 12px; font-size: 0.85rem; display: inline-block;'>🧑‍✈️ <strong>Operator:</strong> {content}</span></div>", unsafe_allow_html=True)
+                        else:
+                            content_html = content.replace("\n", "<br/>")
+                            st.markdown(f"<div style='text-align: left; margin-bottom: 8px;'><div style='background-color: #0F172A; border: 1px solid #334155; color: #E2E8F0; padding: 10px 14px; border-radius: 12px; font-size: 0.85rem;'>🤖 <strong>SafeLand Assistant:</strong><br/>{content_html}</div></div>", unsafe_allow_html=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
+
+                    if st.button("Clear Chat 🗑️", key="btn_clear_chat", use_container_width=True):
+                        st.session_state["chat_history"] = []
+                        st.rerun()
 
             else:  # Select Area Right Panel
                 if "selected_area_result" in st.session_state:
@@ -1148,3 +1605,225 @@ elif st.session_state["current_page"] == "Drone Profiles":
                         st.rerun()
                     else:
                         st.error("A drone with this name already exists. Please choose a unique name.")
+
+
+# ==========================================
+# PAGE 3: MISSION HISTORY SCREEN
+# ==========================================
+elif st.session_state["current_page"] == "History":
+
+    st.markdown("## 📜 Mission History")
+    st.markdown("Complete persistent log of SafeLand AI landing evaluations and dynamic re-evaluations.")
+
+    missions = history.load_mission_history()
+
+    if not missions:
+        st.info("No mission history yet. Run an analysis to create the first record.")
+    else:
+        # Display most recent first
+        sorted_missions = list(reversed(missions))
+
+        st.markdown("### 📊 Mission Overview")
+        
+        # Summary Table Data
+        table_rows = []
+        for m in sorted_missions:
+            m_id = m.get("mission_id", "Unknown")
+            ts = m.get("timestamp", "")
+            formatted_ts = ts.replace("T", " ")[:16] if (ts and len(ts) >= 16) else ts
+            
+            drone = m.get("drone_used", "Rescue Drone")
+            inp = m.get("input_type", "unknown")
+            cnt = m.get("candidate_count", 0)
+            status = m.get("final_status", "ANALYSIS_COMPLETE")
+            
+            final_rec = m.get("final_recommendation", {})
+            final_zone = final_rec.get("zone") if (isinstance(final_rec, dict) and final_rec.get("zone")) else "None"
+            final_score = final_rec.get("score", 0) if isinstance(final_rec, dict) else 0
+
+            table_rows.append({
+                "Mission ID": m_id,
+                "Timestamp": formatted_ts,
+                "Drone": drone,
+                "Input": str(inp).upper(),
+                "Candidates": cnt,
+                "Final Status": status,
+                "Final Zone": final_zone,
+                "Score": final_score
+            })
+
+        st.dataframe(table_rows, use_container_width=True, hide_index=True)
+
+        st.markdown("---")
+        st.markdown("### 🔍 Detailed Mission Logs")
+
+        for m in sorted_missions:
+            m_id = m.get("mission_id", "SL-000")
+            drone = m.get("drone_used", "Drone")
+            ts = m.get("timestamp", "")
+            init_rec = m.get("initial_recommendation", {}) if isinstance(m.get("initial_recommendation"), dict) else {}
+            obs_updates = m.get("obstacle_updates", []) if isinstance(m.get("obstacle_updates"), list) else []
+            final_rec = m.get("final_recommendation", {}) if isinstance(m.get("final_recommendation"), dict) else {}
+            final_status = m.get("final_status", "ANALYSIS_COMPLETE")
+            reasons = m.get("top_zone_reasons", []) if isinstance(m.get("top_zone_reasons"), list) else []
+
+            init_z = init_rec.get("zone") if init_rec.get("zone") else "No Safe Zone"
+            init_score = init_rec.get("score", 0)
+            init_status = init_rec.get("status", "UNSAFE")
+
+            final_z = final_rec.get("zone") if final_rec.get("zone") else "No Safe Zone"
+            final_score = final_rec.get("score", 0)
+            final_st = final_rec.get("status", "UNSAFE")
+
+            with st.expander(f"▼ {m_id} — {drone} ({ts})", expanded=False):
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    st.markdown("**Initial Recommendation:**")
+                    if init_rec.get("zone"):
+                        st.write(f"🎯 **{init_z}** — Score: **{init_score}** ({init_status})")
+                    else:
+                        st.write(f"🔴 **NO SAFE LANDING ZONE** (Highest Score: {init_score})")
+
+                with col_b:
+                    st.markdown("**Final Status & Recommendation:**")
+                    st.write(f"Status: **{final_status}**")
+                    if final_rec.get("zone"):
+                        st.write(f"🏆 **{final_z}** — Score: **{final_score}** ({final_st})")
+                    else:
+                        st.write(f"🔴 **NO SAFE LANDING ZONE** (Score: {final_score})")
+
+                st.markdown("---")
+                st.markdown("**Obstacle Updates:**")
+                if obs_updates:
+                    for update in obs_updates:
+                        if not isinstance(update, dict):
+                            continue
+                        evt = update.get("event", "UPDATE")
+                        hz = update.get("hazard", "hazard")
+                        prev_z = update.get("previous_zone", "Zone")
+                        prev_s = update.get("previous_score", 0)
+                        new_s = update.get("new_score", 0)
+                        new_rec = update.get("new_recommendation", "Zone")
+                        st.warning(f"🚨 **{evt}**: {str(hz).capitalize()} detected near {prev_z} (Score: {prev_s} → {new_s}). New recommendation: **{new_rec}**")
+                else:
+                    st.caption("No obstacle-triggered updates during this mission.")
+
+                st.markdown("---")
+                st.markdown("**Top Zone Reasons:**")
+                if reasons:
+                    for r in reasons:
+                        st.markdown(f"- {r}")
+                else:
+                    st.caption("No top zone reasons recorded.")
+
+
+# ==========================================
+# PAGE 4: MISSIONS OVERVIEW SCREEN
+# ==========================================
+elif st.session_state["current_page"] == "Missions":
+
+    st.markdown("## 🚁 Missions")
+    st.markdown("Active mission status overview and recent flight assessments.")
+
+    # 1. Current / Active Mission Summary Section
+    st.markdown("### 🎯 Current Mission Assessment")
+
+    if "scene_analysis_result" in st.session_state and st.session_state["scene_analysis_result"]:
+        res = st.session_state["scene_analysis_result"]
+        candidates = res.get("candidate_zones", [])
+        decision_res = st.session_state.get("landing_decision", {})
+        
+        active_drone_name = selected_drone.get("name", "Rescue Drone") if selected_drone else "Rescue Drone"
+        input_src_val = str(st.session_state.get("input_source", "unknown")).upper()
+        cand_count_val = len(candidates)
+        
+        dec_type = decision_res.get("decision")
+        rec_zone_val = decision_res.get("recommended_zone") or decision_res.get("zone")
+        rec_score_val = decision_res.get("score", 0)
+        rec_status_val = decision_res.get("status", "UNSAFE")
+
+        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+        with m_col1:
+            st.metric("Selected Drone", active_drone_name)
+        with m_col2:
+            st.metric("Input Source", input_src_val)
+        with m_col3:
+            st.metric("Candidate Zones", cand_count_val)
+        with m_col4:
+            if dec_type == "RECOMMEND":
+                st.metric("Recommendation", f"{rec_zone_val} ({rec_score_val}/100)", delta=rec_status_val)
+            elif dec_type == "EMERGENCY_FALLBACK":
+                st.metric("Recommendation", f"🚨 {rec_zone_val} ({rec_score_val}/100)", delta="EMERGENCY")
+            else:
+                st.metric("Recommendation", "🔴 NO SAFE ZONE", delta="UNSAFE")
+    else:
+        st.info("No active mission yet. Run an analysis from the Dashboard.")
+
+    st.markdown("---")
+
+    # 2. Compact Recent Missions Section
+    st.markdown("### 📜 Recent Mission Records")
+    missions = history.load_mission_history()
+    if not missions:
+        st.caption("No mission history records found.")
+    else:
+        recent_missions = list(reversed(missions))[:5]
+        compact_rows = []
+        for rm in recent_missions:
+            rm_id = rm.get("mission_id", "Unknown")
+            rm_ts = rm.get("timestamp", "")
+            rm_ts_formatted = rm_ts.replace("T", " ")[:16] if len(rm_ts) >= 16 else rm_ts
+            rm_drone = rm.get("drone_used", "Drone")
+            rm_inp = str(rm.get("input_type", "unknown")).upper()
+            rm_status = rm.get("final_status", "COMPLETE")
+            
+            rm_rec = rm.get("final_recommendation", {}) if isinstance(rm.get("final_recommendation"), dict) else {}
+            rm_zone = rm_rec.get("zone") if rm_rec.get("zone") else "None"
+            rm_score = rm_rec.get("score", 0)
+
+            compact_rows.append({
+                "Mission ID": rm_id,
+                "Timestamp": rm_ts_formatted,
+                "Drone": rm_drone,
+                "Input": rm_inp,
+                "Status": rm_status,
+                "Final Zone": rm_zone,
+                "Score": rm_score
+            })
+
+        st.dataframe(compact_rows, use_container_width=True, hide_index=True)
+
+
+# ==========================================
+# PAGE 5: OPERATIONAL SETTINGS SCREEN
+# ==========================================
+elif st.session_state["current_page"] == "Settings":
+
+    st.markdown("## ⚙ Settings")
+    st.markdown("Operational environment configuration, emergency mode controls, and landing thresholds.")
+
+    st.markdown("### 📐 1. Estimated Ground Width")
+    g_col1, g_col2 = st.columns([1, 2])
+    with g_col1:
+        st.metric("Current Frame Scale", f"{estimated_ground_width_m} m")
+    with g_col2:
+        st.info("Adjust full-frame ground width scaling using the **Operational Settings** slider in the sidebar.")
+
+    st.markdown("---")
+    st.markdown("### 🚨 2. Emergency Landing Mode")
+    e_col1, e_col2 = st.columns([1, 2])
+    with e_col1:
+        st.metric("Emergency Mode Status", "ACTIVE 🚨" if emergency_mode else "OFF (Normal)")
+    with e_col2:
+        st.info("Emergency Mode can be toggled via the sidebar control to allow least-risk candidate selection when no zone meets normal safe thresholds.")
+
+    st.markdown("---")
+    st.markdown("### 🛡️ 3. Safe Threshold Display")
+    s_col1, s_col2 = st.columns([1, 2])
+    with s_col1:
+        st.metric("Safe Threshold Constant", f"{landing_engine.SAFE_THRESHOLD} / 100")
+    with s_col2:
+        st.info(f"**Safe Threshold:** `{landing_engine.SAFE_THRESHOLD} / 100`\n\nZones scoring 80–100 are classified as **SAFE**. Scores 50–79 are **CAUTION**, and 0–49 are **UNSAFE**.")
+
+    st.markdown("---")
+    st.caption("⚠️ Estimated scale for demo purposes — real deployment requires camera calibration, altitude data or depth sensing.")
