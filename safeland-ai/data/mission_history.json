@@ -228,6 +228,78 @@
         "✓ No nearby dynamic hazards",
         "✕ Zone area below clearance requirement"
       ]
+    },
+    {
+      "mission_id": "SL-20260911-010",
+      "timestamp": "2026-09-11T05:08:14",
+      "drone_used": "Rescue Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-011",
+      "timestamp": "2026-09-11T05:16:24",
+      "drone_used": "Delivery Drone",
+      "input_type": "image",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-012",
+      "timestamp": "2026-09-11T05:17:21",
+      "drone_used": "Rescue Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
     }
   ]
 }

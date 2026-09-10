@@ -1,3 +1,15 @@
 {
-  "default_drone": "Rescue Drone"
+  "default_drone": "Rescue Drone",
+  "estimated_ground_width_m": 15.5,
+  "show_hazard_boxes": true,
+  "show_zone_overlays": false,
+  "show_detailed_reasons": true,
+  "dynamic_re_evaluation": true,
+  "re_evaluation_interval": 5,
+  "alerts": {
+    "new_obstacle": true,
+    "recommendation_change": true,
+    "no_safe_zone": false,
+    "emergency_mode": true
+  }
 }

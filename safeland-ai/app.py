@@ -564,16 +564,48 @@ def compute_re_evaluation_alerts(
 
     return alerts
 
+def record_mission_event(event_type: str, description: str, icon: str = "ℹ️"):
+    """Record a unique mission telemetry event in session state timeline."""
+    if "mission_events" not in st.session_state:
+        st.session_state["mission_events"] = []
+    
+    events = st.session_state["mission_events"]
+    if events:
+        last_evt = events[-1]
+        if last_evt.get("event_type") == event_type and last_evt.get("description") == description:
+            return
+
+    now_str = datetime.now().strftime("%H:%M:%S")
+    events.append({
+        "timestamp": now_str,
+        "event_type": event_type,
+        "description": description,
+        "icon": icon
+    })
+    st.session_state["mission_events"] = events
+
+# Synchronize Settings from data/settings.json into st.session_state
+saved_settings = drone_profiles.load_settings()
+if "settings_loaded" not in st.session_state:
+    for skey, sval in saved_settings.items():
+        st.session_state[f"setting_{skey}"] = sval
+    st.session_state["settings_loaded"] = True
+
+if "estimated_ground_width_m" not in st.session_state:
+    st.session_state["estimated_ground_width_m"] = float(saved_settings.get("estimated_ground_width_m", 10.0))
+
 # Sidebar Demo Settings
 st.sidebar.markdown("### ⚙️ Operational Settings")
 estimated_ground_width_m = st.sidebar.slider(
     "Estimated Ground Width (m)",
     min_value=5.0,
     max_value=50.0,
-    value=10.0,
+    value=float(st.session_state.get("estimated_ground_width_m", 10.0)),
     step=0.5,
+    key="sidebar_ground_width_slider",
     help="Demo scale assumption representing full frame width in meters."
 )
+st.session_state["estimated_ground_width_m"] = estimated_ground_width_m
 st.sidebar.caption("⚠️ Estimated scale for demo purposes — real deployment requires camera calibration, altitude data or depth sensing.")
 
 emergency_mode = st.sidebar.toggle(
@@ -666,10 +698,15 @@ if st.session_state["current_page"] == "Dashboard":
             key="home_drone_mode_radio"
         )
 
-    selected_drone_name = default_drone_name or (drone_names[0] if drone_names else None)
-
     with ctrl_col2:
-        if selection_mode == "🔄 Select Another" or default_drone_name is None:
+        if selection_mode == "⭐ Use Default Drone":
+            if default_drone_name is not None:
+                selected_drone_name = default_drone_name
+                st.info(f"Using Default Saved Profile: **{default_drone_name}**")
+            else:
+                selected_drone_name = None
+                st.warning("⚠️ No default drone selected. Please select a drone profile before running landing analysis.")
+        else:
             default_index = drone_names.index(default_drone_name) if (default_drone_name and default_drone_name in drone_names) else 0
             selected_drone_name = st.selectbox(
                 "Select Operational Drone",
@@ -677,16 +714,14 @@ if st.session_state["current_page"] == "Dashboard":
                 index=default_index,
                 key="home_drone_selectbox"
             )
-            if default_drone_name is None and selection_mode == "⭐ Use Default Drone":
-                st.warning("No default drone configured. Please select an operational drone or set a default in Drone Profiles.")
-        else:
-            st.info(f"Using Default Saved Profile: **{default_drone_name}**")
 
     # Fetch selected drone details
-    selected_drone = drone_profiles.get_drone_by_name(selected_drone_name)
+    selected_drone = drone_profiles.get_drone_by_name(selected_drone_name) if selected_drone_name else None
+    st.session_state["selected_drone"] = selected_drone
+    st.session_state["selected_drone_name"] = selected_drone_name
 
     if selected_drone:
-        is_default = (selected_drone["name"] == default_drone_name)
+        is_default = (default_drone_name is not None and selected_drone["name"] == default_drone_name)
         default_tag_html = '<span class="default-badge">⭐ DEFAULT PROFILE</span>' if is_default else ""
 
         st.markdown(f"""
@@ -721,7 +756,7 @@ if st.session_state["current_page"] == "Dashboard":
         </div>
         """, unsafe_allow_html=True)
     else:
-        st.error("No drone profile found.")
+        st.warning("⚠️ No default drone selected. Please select a drone profile before running landing analysis.")
 
     st.markdown("---")
 
@@ -909,39 +944,64 @@ if st.session_state["current_page"] == "Dashboard":
     btn_label = "🔄 RE-ANALYZE CURRENT FRAME" if has_prev else "🚀 START AI ANALYSIS"
     
     if st.button(btn_label, type="primary", disabled=not frame_ready, use_container_width=True, key="btn_start_ai_analysis"):
-        with st.spinner("Analyzing scene hazards & evaluating open landing candidates..."):
-            analysis_res = scene_analysis.analyze_scene(current_frame)
-            st.session_state["scene_analysis_result"] = analysis_res
+        if not selected_drone:
+            st.warning("⚠️ No default drone selected. Please select a drone profile before running landing analysis.")
+        else:
+            with st.spinner("Analyzing scene hazards & evaluating open landing candidates..."):
+                analysis_res = scene_analysis.analyze_scene(current_frame)
+                st.session_state["scene_analysis_result"] = analysis_res
 
-            hazards = analysis_res.get("hazards", [])
-            candidates = analysis_res.get("candidate_zones", [])
+                hazards = analysis_res.get("hazards", [])
+                candidates = analysis_res.get("candidate_zones", [])
 
-            clearance_results = []
-            ranked_zones = []
-            if candidates and selected_drone and input_handler.is_valid_frame(current_frame):
-                clearance_results = landing_engine.evaluate_all_candidate_clearances(
-                    candidate_zones=candidates,
-                    drone_profile=selected_drone,
-                    frame_shape=current_frame.shape,
-                    estimated_ground_width_m=estimated_ground_width_m
+                clearance_results = []
+                ranked_zones = []
+                if candidates and selected_drone and input_handler.is_valid_frame(current_frame):
+                    clearance_results = landing_engine.evaluate_all_candidate_clearances(
+                        candidate_zones=candidates,
+                        drone_profile=selected_drone,
+                        frame_shape=current_frame.shape,
+                        estimated_ground_width_m=estimated_ground_width_m
+                    )
+                    st.session_state["clearance_results"] = clearance_results
+
+                    ranked_zones = scoring.rank_zones(
+                        candidate_zones=candidates,
+                        drone_profile=selected_drone,
+                        hazards=hazards,
+                        clearance_results=clearance_results,
+                        frame_shape=current_frame.shape
+                    )
+                    st.session_state["ranked_zones"] = ranked_zones
+
+                decision_res = landing_engine.evaluate_landing_decision(
+                    ranked_zones=ranked_zones,
+                    safe_threshold=landing_engine.SAFE_THRESHOLD,
+                    emergency_mode=emergency_mode
                 )
-                st.session_state["clearance_results"] = clearance_results
+                st.session_state["landing_decision"] = decision_res
 
-                ranked_zones = scoring.rank_zones(
-                    candidate_zones=candidates,
-                    drone_profile=selected_drone,
-                    hazards=hazards,
-                    clearance_results=clearance_results,
-                    frame_shape=current_frame.shape
-                )
-                st.session_state["ranked_zones"] = ranked_zones
+            # Active Mission Telemetry Recording
+            st.session_state["active_mission_id"] = f"MSN-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
+            st.session_state["analysis_timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            decision_res = landing_engine.evaluate_landing_decision(
-                ranked_zones=ranked_zones,
-                safe_threshold=landing_engine.SAFE_THRESHOLD,
-                emergency_mode=emergency_mode
-            )
-            st.session_state["landing_decision"] = decision_res
+            src_str = str(st.session_state.get("input_source", "image")).upper()
+            record_mission_event("ANALYSIS_STARTED", f"Analysis started for {src_str} frame", "🚀")
+            record_mission_event("CANDIDATES_DETECTED", f"{len(candidates)} candidate zone(s) detected", "📐")
+            record_mission_event("HAZARDS_DETECTED", f"{len(hazards)} hazard(s) detected in scene", "⚠️" if hazards else "✅")
+            record_mission_event("RANKING_COMPLETED", f"Candidate zones evaluated & ranked against drone clearance", "📊")
+
+            curr_dec_type = decision_res.get("decision")
+            rec_label = decision_res.get("recommended_zone")
+            rec_score = decision_res.get("score", 0)
+            rec_status = decision_res.get("status", "SAFE")
+
+            if curr_dec_type == "RECOMMEND":
+                record_mission_event("ZONE_RECOMMENDED", f"Zone {rec_label} recommended with safety score {rec_score}/100", "🏆")
+            elif curr_dec_type == "EMERGENCY_FALLBACK":
+                record_mission_event("EMERGENCY_ACTIVATED", f"Emergency Mode active: fallback Zone {rec_label} selected ({rec_score}/100)", "🚨")
+            else:
+                record_mission_event("NO_SAFE_ZONE", "No safe landing candidate satisfied required clearance or safety threshold", "🔴")
 
             # Calculate Re-Evaluation Alerts if previous analysis exists for video or camera
             if st.session_state.get("previous_decision") and st.session_state.get("input_source") in ["video", "camera"]:
@@ -949,6 +1009,11 @@ if st.session_state["current_page"] == "Dashboard":
                 st.session_state["re_eval_alerts"] = alerts
                 if alerts:
                     voice_assistant.check_and_speak_critical_alerts(alerts)
+                    for al in alerts:
+                        if al.get("type") == "RECOMMENDATION_CHANGED":
+                            record_mission_event("RECOMMENDATION_CHANGED", f"Recommendation changed: {al.get('prev_zone')} → {al.get('new_recommendation')}", "🔄")
+                        elif al.get("type") == "NEW_OBSTACLE":
+                            record_mission_event("NEW_OBSTACLE", al.get("message"), "🚨")
             else:
                 st.session_state["re_eval_alerts"] = []
 
@@ -1536,8 +1601,11 @@ elif st.session_state["current_page"] == "Drone Profiles":
     with tab1:
         st.markdown("### Registered Fleet Profiles")
 
+        if st.session_state.get("profile_msg"):
+            st.success(st.session_state.pop("profile_msg"))
+
         for idx, drone in enumerate(drones):
-            is_default = (drone["name"] == default_drone_name)
+            is_default = (default_drone_name is not None and drone["name"] == default_drone_name)
             
             c1, c2, c3, c4, c5, c6 = st.columns([2, 1.2, 1.2, 1.5, 2.5, 1.5])
             
@@ -1555,7 +1623,16 @@ elif st.session_state["current_page"] == "Drone Profiles":
                 st.markdown(f"*{drone.get('purpose', 'General')}*")
             with c6:
                 if is_default:
-                    st.button("Active Default", key=f"def_btn_{idx}", disabled=True, use_container_width=True)
+                    if st.button("Remove Default", key=f"rem_def_btn_{idx}", use_container_width=True):
+                        drone_profiles.remove_default_drone_name()
+                        st.session_state.pop("default_drone", None)
+                        st.session_state.pop("default_drone_name", None)
+                        st.session_state.pop("selected_drone", None)
+                        st.session_state.pop("selected_drone_name", None)
+                        msg = "✅ Default drone removed successfully."
+                        st.session_state["profile_msg"] = msg
+                        st.toast(msg)
+                        st.rerun()
                 else:
                     if st.button("Set as Default", key=f"set_def_btn_{idx}", use_container_width=True):
                         drone_profiles.set_default_drone_name(drone["name"])
@@ -1718,51 +1795,227 @@ elif st.session_state["current_page"] == "History":
 
 
 # ==========================================
-# PAGE 4: MISSIONS OVERVIEW SCREEN
+# PAGE 4: MISSIONS OVERVIEW & CONTROL SCREEN
 # ==========================================
 elif st.session_state["current_page"] == "Missions":
 
-    st.markdown("## 🚁 Missions")
-    st.markdown("Active mission status overview and recent flight assessments.")
+    st.markdown("## 🚁 Mission Control & Flight Assessment")
+    st.markdown("Active mission monitoring, zone safety hierarchy, live telemetry events, and recent flight history.")
 
-    # 1. Current / Active Mission Summary Section
-    st.markdown("### 🎯 Current Mission Assessment")
+    scene_res = st.session_state.get("scene_analysis_result")
+    decision_res = st.session_state.get("landing_decision", {})
+    ranked_zones = st.session_state.get("ranked_zones", [])
+    clearance_results = st.session_state.get("clearance_results", [])
+    
+    # Retrieve current selected drone cleanly
+    selected_drone_obj = st.session_state.get("selected_drone")
+    if selected_drone_obj is None:
+        default_name = drone_profiles.get_default_drone_name()
+        if default_name:
+            selected_drone_obj = drone_profiles.get_drone_by_name(default_name)
 
-    if "scene_analysis_result" in st.session_state and st.session_state["scene_analysis_result"]:
-        res = st.session_state["scene_analysis_result"]
-        candidates = res.get("candidate_zones", [])
-        decision_res = st.session_state.get("landing_decision", {})
-        
-        active_drone_name = selected_drone.get("name", "Rescue Drone") if selected_drone else "Rescue Drone"
-        input_src_val = str(st.session_state.get("input_source", "unknown")).upper()
-        cand_count_val = len(candidates)
+    if isinstance(selected_drone_obj, dict):
+        active_drone_name = selected_drone_obj.get("name", "No active drone selected.")
+    else:
+        active_drone_name = "No active drone selected."
+
+    input_src_raw = st.session_state.get("active_input_type") or st.session_state.get("input_source") or "Unknown"
+    input_src_display = {
+        "image": "Uploaded Image",
+        "video": "Video Frame",
+        "camera": "Live Camera"
+    }.get(str(input_src_raw).lower(), str(input_src_raw).upper())
+
+    is_emergency = bool(st.session_state.get("emergency_mode", False))
+
+    if scene_res:
+        hazards = scene_res.get("hazards", [])
+        candidates = scene_res.get("candidate_zones", [])
+        mission_id = st.session_state.get("active_mission_id", "MSN-CURRENT")
+        analysis_ts = st.session_state.get("analysis_timestamp", "Active Session")
         
         dec_type = decision_res.get("decision")
-        rec_zone_val = decision_res.get("recommended_zone") or decision_res.get("zone")
-        rec_score_val = decision_res.get("score", 0)
-        rec_status_val = decision_res.get("status", "UNSAFE")
-
-        m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-        with m_col1:
-            st.metric("Selected Drone", active_drone_name)
-        with m_col2:
-            st.metric("Input Source", input_src_val)
-        with m_col3:
-            st.metric("Candidate Zones", cand_count_val)
-        with m_col4:
-            if dec_type == "RECOMMEND":
-                st.metric("Recommendation", f"{rec_zone_val} ({rec_score_val}/100)", delta=rec_status_val)
-            elif dec_type == "EMERGENCY_FALLBACK":
-                st.metric("Recommendation", f"🚨 {rec_zone_val} ({rec_score_val}/100)", delta="EMERGENCY")
+        rec_zone_name = decision_res.get("recommended_zone") or decision_res.get("zone")
+        rec_score = decision_res.get("score", 0)
+        rec_status = decision_res.get("status", "UNSAFE")
+        
+        if dec_type == "RECOMMEND":
+            if rec_status == "SAFE":
+                mission_status = "SAFE TO LAND"
+                status_badge_color = "#10B981"
             else:
-                st.metric("Recommendation", "🔴 NO SAFE ZONE", delta="UNSAFE")
+                mission_status = "CAUTION"
+                status_badge_color = "#F59E0B"
+        elif dec_type == "EMERGENCY_FALLBACK":
+            mission_status = "EMERGENCY"
+            status_badge_color = "#EF4444"
+        else:
+            mission_status = "NO SAFE LANDING ZONE"
+            status_badge_color = "#EF4444"
+
+        # SECTION A — ACTIVE MISSION STATUS CARD
+        st.markdown("### 🎯 Current Mission Status")
+        st.markdown(f"""
+        <div class="content-card" style="padding: 24px; border-left: 5px solid {status_badge_color}; margin-bottom: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <div style="font-size: 1.2rem; font-weight: 700; color: #F8FAFC;">
+                    Mission ID: <span style="color: var(--accent-blue);">{mission_id}</span>
+                </div>
+                <div style="background-color: {status_badge_color}22; border: 1px solid {status_badge_color}; color: {status_badge_color}; padding: 4px 14px; border-radius: 12px; font-weight: 700; font-size: 0.88rem;">
+                    Status: {mission_status}
+                </div>
+            </div>
+            <div class="spec-grid">
+                <div class="spec-item">
+                    <div class="spec-label">Selected Drone</div>
+                    <div class="spec-value" style="font-size: 1.05rem;">🛸 {active_drone_name}</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Input Source</div>
+                    <div class="spec-value">{input_src_display}</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Emergency Mode</div>
+                    <div class="spec-value" style="color: {'#F59E0B' if is_emergency else '#94A3B8'}; font-weight: 700;">{'ON 🚨' if is_emergency else 'OFF'}</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Analysis Timestamp</div>
+                    <div class="spec-value">{analysis_ts}</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Candidates Detected</div>
+                    <div class="spec-value">{len(candidates)} zones</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Hazards Detected</div>
+                    <div class="spec-value" style="color: {'#EF4444' if hazards else '#10B981'}; font-weight: 700;">{len(hazards)} hazards</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Recommended Zone</div>
+                    <div class="spec-value" style="color: var(--accent-blue); font-weight: 700;">{rec_zone_name if rec_zone_name else 'None'}</div>
+                </div>
+                <div class="spec-item">
+                    <div class="spec-label">Current Safety Score</div>
+                    <div class="spec-value">{rec_score}/100</div>
+                </div>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # SECTION B & C — LANDING ZONE RANKING & SAFETY SUMMARY
+        col_rank, col_summary = st.columns([1.3, 1])
+
+        with col_rank:
+            st.markdown("### 📊 Candidate Zone Ranking")
+            if ranked_zones:
+                ranking_table_data = []
+                for idx, z in enumerate(ranked_zones, start=1):
+                    z_label = z.get("label", f"Zone {idx}")
+                    z_score = z.get("score", 0)
+                    z_status = z.get("status", "UNSAFE")
+                    is_rec = (rec_zone_name and z_label == rec_zone_name)
+                    
+                    ranking_table_data.append({
+                        "Rank": f"🏆 #{idx}" if is_rec else f"#{idx}",
+                        "Zone": f"{z_label} {'(Recommended)' if is_rec else ''}",
+                        "Score": f"{z_score} / 100",
+                        "Status": z_status
+                    })
+                
+                st.dataframe(ranking_table_data, use_container_width=True, hide_index=True)
+            else:
+                st.caption("No candidate zones evaluated.")
+
+        with col_summary:
+            st.markdown("### 🛡️ Mission Safety Summary")
+            reasons = decision_res.get("reasons", [])
+            primary_reason = reasons[0] if reasons else "Clearance & obstacle safety threshold satisfied."
+            
+            rec_clr_obj = next((c for c in clearance_results if c.get("label") == rec_zone_name), None)
+            clr_passed = rec_clr_obj.get("clearance", {}).get("passed") if rec_clr_obj else False
+            clr_status_str = "PASS ✅" if clr_passed else ("FAIL 🔴" if rec_clr_obj else "N/A")
+
+            st.markdown(f"""
+            <div class="content-card" style="padding: 20px;">
+                <div style="margin-bottom: 8px;">🏆 <strong>Recommended Zone:</strong> <span style="color: var(--accent-blue); font-weight: 700;">{rec_zone_name if rec_zone_name else 'None'}</span></div>
+                <div style="margin-bottom: 8px;">💯 <strong>Safety Score:</strong> <span style="font-weight: 700;">{rec_score}/100</span></div>
+                <div style="margin-bottom: 8px;">📏 <strong>Clearance Status:</strong> <strong>{clr_status_str}</strong></div>
+                <div style="margin-bottom: 8px;">⚠️ <strong>Hazards Detected:</strong> {len(hazards)} detected</div>
+                <div style="margin-bottom: 8px;">🚦 <strong>Landing Decision:</strong> <span style="color: {status_badge_color}; font-weight: 700;">{mission_status}</span></div>
+                <div style="margin-top: 12px; font-size: 0.85rem; color: #CBD5E1; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 8px;">
+                    <strong>Primary Reason:</strong> {primary_reason}
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # SECTION D — LIVE MISSION EVENTS TIMELINE
+        st.markdown("### 📜 Mission Events Timeline")
+        events = st.session_state.get("mission_events", [])
+        if events:
+            for evt in reversed(events[-10:]):
+                icon = evt.get("icon", "ℹ️")
+                ts = evt.get("timestamp", "")
+                desc = evt.get("description", "")
+                st.markdown(f"<div style='margin-bottom: 6px; font-size: 0.9rem; color: #CBD5E1;'><code>{ts}</code> {icon} {desc}</div>", unsafe_allow_html=True)
+        else:
+            st.caption("No telemetry events recorded during this session yet.")
+
+        st.markdown("---")
+
+        # SECTION E — DYNAMIC RE-RANK INFORMATION
+        re_eval_alerts = st.session_state.get("re_eval_alerts", [])
+        if re_eval_alerts:
+            st.markdown("### 🚨 Dynamic Re-Evaluation Information")
+            for alert in re_eval_alerts:
+                a_type = alert.get("type")
+                if a_type == "RECOMMENDATION_CHANGED":
+                    p_z = alert.get("prev_zone", "Zone")
+                    p_s = alert.get("prev_score", 0)
+                    n_z = alert.get("new_recommendation", "Zone")
+                    curr_prev_s = alert.get("curr_prev_score", 0)
+                    st.warning(f"🚨 **LANDING RECOMMENDATION CHANGED**\n\n- **Previous:** Zone {p_z} — {p_s}/100 (now {curr_prev_s}/100)\n- **Current:** Zone {n_z} — {rec_score}/100\n- **Reason:** New obstacle detected inside previous landing zone.")
+                elif a_type == "NEW_OBSTACLE":
+                    st.warning(f"🚨 **NEW OBSTACLE DETECTED:** {alert.get('message')}")
+                elif a_type == "NO_LONGER_SAFE":
+                    st.error(f"🔴 **PREVIOUS LANDING ZONE NO LONGER SAFE:** {alert.get('message')}")
+
     else:
-        st.info("No active mission yet. Run an analysis from the Dashboard.")
+        st.info("No active mission. Run a landing-zone analysis from the Dashboard.")
 
     st.markdown("---")
 
-    # 2. Compact Recent Missions Section
-    st.markdown("### 📜 Recent Mission Records")
+    # SECTION F — MISSION CONTROLS
+    st.markdown("### 🎮 Mission Controls")
+    ctrl_c1, ctrl_c2, ctrl_c3 = st.columns(3)
+
+    with ctrl_c1:
+        if st.button("🚀 Go to Dashboard", use_container_width=True, type="primary"):
+            st.session_state["current_page"] = "Dashboard"
+            st.session_state["active_page"] = "Dashboard"
+            st.rerun()
+
+    with ctrl_c2:
+        has_valid_frame = input_handler.is_valid_frame(st.session_state.get("current_frame"))
+        if st.button("🔄 Re-Analyze Current Frame", use_container_width=True, disabled=not has_valid_frame):
+            st.session_state["current_page"] = "Dashboard"
+            st.session_state["active_page"] = "Dashboard"
+            st.session_state["trigger_re_analyze"] = True
+            st.rerun()
+
+    with ctrl_c3:
+        if st.button("📜 View Full History", use_container_width=True):
+            st.session_state["current_page"] = "History"
+            st.session_state["active_page"] = "History"
+            st.rerun()
+
+    st.markdown("---")
+
+    # SECTION G — MISSION HISTORY PREVIEW
+    st.markdown("### 📜 Recent Mission History")
     missions = history.load_mission_history()
     if not missions:
         st.caption("No mission history records found.")
@@ -1780,50 +2033,248 @@ elif st.session_state["current_page"] == "Missions":
             rm_rec = rm.get("final_recommendation", {}) if isinstance(rm.get("final_recommendation"), dict) else {}
             rm_zone = rm_rec.get("zone") if rm_rec.get("zone") else "None"
             rm_score = rm_rec.get("score", 0)
+            init_zone = rm.get("initial_zone", rm_zone)
 
             compact_rows.append({
                 "Mission ID": rm_id,
-                "Timestamp": rm_ts_formatted,
+                "Time": rm_ts_formatted,
                 "Drone": rm_drone,
                 "Input": rm_inp,
-                "Status": rm_status,
+                "Initial Zone": init_zone,
                 "Final Zone": rm_zone,
-                "Score": rm_score
+                "Final Score": rm_score,
+                "Final Status": rm_status
             })
 
         st.dataframe(compact_rows, use_container_width=True, hide_index=True)
 
 
 # ==========================================
-# PAGE 5: OPERATIONAL SETTINGS SCREEN
+# PAGE 5: ADVANCED OPERATIONAL SETTINGS SCREEN
 # ==========================================
 elif st.session_state["current_page"] == "Settings":
 
-    st.markdown("## ⚙ Settings")
-    st.markdown("Operational environment configuration, emergency mode controls, and landing thresholds.")
+    st.markdown("## ⚙ Advanced Settings & System Configuration")
+    st.markdown("Configure landing safety thresholds, ground scaling, emergency rules, analysis display preferences, and alert notifications.")
 
-    st.markdown("### 📐 1. Estimated Ground Width")
-    g_col1, g_col2 = st.columns([1, 2])
-    with g_col1:
-        st.metric("Current Frame Scale", f"{estimated_ground_width_m} m")
-    with g_col2:
-        st.info("Adjust full-frame ground width scaling using the **Operational Settings** slider in the sidebar.")
+    saved_settings = drone_profiles.load_settings()
 
-    st.markdown("---")
-    st.markdown("### 🚨 2. Emergency Landing Mode")
-    e_col1, e_col2 = st.columns([1, 2])
-    with e_col1:
-        st.metric("Emergency Mode Status", "ACTIVE 🚨" if emergency_mode else "OFF (Normal)")
-    with e_col2:
-        st.info("Emergency Mode can be toggled via the sidebar control to allow least-risk candidate selection when no zone meets normal safe thresholds.")
-
-    st.markdown("---")
-    st.markdown("### 🛡️ 3. Safe Threshold Display")
+    # SECTION A — LANDING SAFETY SETTINGS
+    st.markdown("### 🛡️ 1. Landing Safety Thresholds")
     s_col1, s_col2 = st.columns([1, 2])
     with s_col1:
-        st.metric("Safe Threshold Constant", f"{landing_engine.SAFE_THRESHOLD} / 100")
+        st.metric("Safe Threshold (Read-Only)", f"{landing_engine.SAFE_THRESHOLD} / 100")
     with s_col2:
-        st.info(f"**Safe Threshold:** `{landing_engine.SAFE_THRESHOLD} / 100`\n\nZones scoring 80–100 are classified as **SAFE**. Scores 50–79 are **CAUTION**, and 0–49 are **UNSAFE**.")
+        st.info(f"**Safe Threshold:** `{landing_engine.SAFE_THRESHOLD} / 100` (Core Constant)\n\n"
+                f"Zones scoring **80–100** are classified as **SAFE**. Scores **50–79** are **CAUTION**, and **0–49** are **UNSAFE**.\n\n"
+                f"*Zones below this safety score are not recommended for normal landing.*")
 
     st.markdown("---")
-    st.caption("⚠️ Estimated scale for demo purposes — real deployment requires camera calibration, altitude data or depth sensing.")
+
+    # SECTION B — GROUND SCALE SETTINGS
+    st.markdown("### 📐 2. Ground Scale Settings")
+    g_col1, g_col2 = st.columns([1, 2])
+    with g_col1:
+        new_ground_scale = st.number_input(
+            "Estimated Ground Width (meters)",
+            min_value=5.0,
+            max_value=50.0,
+            value=float(st.session_state.get("estimated_ground_width_m", saved_settings.get("estimated_ground_width_m", 10.0))),
+            step=0.5,
+            help="Estimated full-width ground coverage in meters for pixel-to-meter conversion."
+        )
+        st.session_state["estimated_ground_width_m"] = new_ground_scale
+    with g_col2:
+        st.info("This estimated scale converts image-space measurements into approximate real-world landing dimensions.\n\n"
+                "⚠️ *Estimated scale for demo purposes — real deployment requires camera calibration, altitude data or depth sensing.*")
+
+    st.markdown("---")
+
+    # SECTION C — EMERGENCY LANDING SETTINGS
+    st.markdown("### 🚨 3. Emergency Landing Mode")
+    em_col1, em_col2 = st.columns([1, 2])
+    with em_col1:
+        current_em_state = bool(st.session_state.get("emergency_mode", False))
+        new_em_toggle = st.toggle("Emergency Landing Mode", value=current_em_state, key="settings_em_toggle")
+        st.session_state["emergency_mode"] = new_em_toggle
+        st.markdown(f"**Status:** `{'ACTIVE 🚨' if new_em_toggle else 'OFF (Normal)'}`")
+    with em_col2:
+        st.info("When **Emergency Mode** is ON, the system prioritizes the best available landing zone when normal safe-zone requirements cannot be satisfied. Hazard warnings must still remain visible.")
+
+    st.markdown("---")
+
+    # SECTION D — DEFAULT DRONE
+    st.markdown("### 🚁 4. Default Drone Profile")
+    def_drone_name = drone_profiles.get_default_drone_name()
+    d_col1, d_col2 = st.columns([1, 2])
+    with d_col1:
+        if def_drone_name:
+            def_drone_obj = drone_profiles.get_drone_by_name(def_drone_name)
+            clr = def_drone_obj.get("required_clearance_m", 0.0) if def_drone_obj else 0.0
+            st.markdown(f"**Default Drone:** `🛸 {def_drone_name}`")
+            st.markdown(f"**Required Clearance:** `{clr} m radius` (`{clr} m × {clr} m`)")
+        else:
+            st.warning("No default drone selected.")
+    with d_col2:
+        if st.button("🚁 Manage Drone Profiles", use_container_width=True):
+            st.session_state["current_page"] = "Drone Profiles"
+            st.session_state["active_page"] = "Drone Profiles"
+            st.rerun()
+
+    st.markdown("---")
+
+    # SECTION E — ANALYSIS CONFIGURATION
+    st.markdown("### 🔬 5. Analysis Display & Processing Preferences")
+    pref_col1, pref_col2 = st.columns(2)
+    with pref_col1:
+        pref_show_hazards = st.checkbox("Show annotated hazard boxes", value=bool(st.session_state.get("setting_show_hazard_boxes", saved_settings.get("show_hazard_boxes", True))))
+        pref_show_overlays = st.checkbox("Show candidate zone overlays", value=bool(st.session_state.get("setting_show_zone_overlays", saved_settings.get("show_zone_overlays", True))))
+        pref_show_reasons = st.checkbox("Show detailed safety reasons", value=bool(st.session_state.get("setting_show_detailed_reasons", saved_settings.get("show_detailed_reasons", True))))
+    with pref_col2:
+        pref_dyn_reeval = st.checkbox("Enable dynamic re-evaluation", value=bool(st.session_state.get("setting_dynamic_re_evaluation", saved_settings.get("dynamic_re_evaluation", True))))
+        pref_reeval_interval = st.radio(
+            "Preferred re-evaluation refresh interval (button-driven refresh mode):",
+            options=[2, 3, 5],
+            index=[2, 3, 5].index(saved_settings.get("re_evaluation_interval", 3)) if saved_settings.get("re_evaluation_interval", 3) in [2, 3, 5] else 1,
+            format_func=lambda x: f"{x} seconds",
+            horizontal=True
+        )
+
+    st.markdown("---")
+
+    # SECTION F — ALERT PREFERENCES
+    st.markdown("### 🔔 6. Alert Preferences")
+    st.caption("Control notification display thresholds for active scene events.")
+    saved_alerts = saved_settings.get("alerts", {})
+    alert_col1, alert_col2 = st.columns(2)
+    with alert_col1:
+        alert_new_obs = st.checkbox("Alert when new obstacle detected", value=bool(saved_alerts.get("new_obstacle", True)))
+        alert_rec_change = st.checkbox("Alert when recommended zone changes", value=bool(saved_alerts.get("recommendation_change", True)))
+    with alert_col2:
+        alert_no_safe = st.checkbox("Alert when no safe landing zone exists", value=bool(saved_alerts.get("no_safe_zone", True)))
+        alert_em_mode = st.checkbox("Alert when Emergency Mode activates", value=bool(saved_alerts.get("emergency_mode", True)))
+
+    st.markdown("---")
+
+    # SECTION G — SYSTEM INFORMATION
+    st.markdown("### ℹ️ 7. System Information")
+    mission_count = len(history.load_mission_history())
+    
+    st.markdown(f"""
+    <div class="content-card" style="padding: 20px;">
+        <div class="spec-grid">
+            <div class="spec-item">
+                <div class="spec-label">Application</div>
+                <div class="spec-value">SafeLand AI v2.0</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Framework</div>
+                <div class="spec-value">Streamlit</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Vision Processing</div>
+                <div class="spec-value">OpenCV</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Object Detection</div>
+                <div class="spec-value">YOLOv8 / Synthetic Fallback</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Numerical Processing</div>
+                <div class="spec-value">NumPy</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Image Processing</div>
+                <div class="spec-value">Pillow</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Mission Storage</div>
+                <div class="spec-value">JSON Storage</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Deployment</div>
+                <div class="spec-value">Render-compatible</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">SAFE_THRESHOLD</div>
+                <div class="spec-value">{landing_engine.SAFE_THRESHOLD} / 100</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Current Default Drone</div>
+                <div class="spec-value">{def_drone_name if def_drone_name else 'None'}</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Emergency Mode State</div>
+                <div class="spec-value" style="color: {'#F59E0B' if new_em_toggle else '#94A3B8'}; font-weight: 700;">{'ON 🚨' if new_em_toggle else 'OFF'}</div>
+            </div>
+            <div class="spec-item">
+                <div class="spec-label">Mission Records</div>
+                <div class="spec-value">{mission_count} recorded</div>
+            </div>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown("---")
+
+    # SECTION H — SETTINGS ACTIONS
+    st.markdown("### 💾 8. Settings Actions")
+    act_col1, act_col2 = st.columns(2)
+
+    with act_col1:
+        if st.button("💾 Save Settings", use_container_width=True, type="primary"):
+            updated_settings = {
+                "default_drone": def_drone_name,
+                "estimated_ground_width_m": float(new_ground_scale),
+                "show_hazard_boxes": bool(pref_show_hazards),
+                "show_zone_overlays": bool(pref_show_overlays),
+                "show_detailed_reasons": bool(pref_show_reasons),
+                "dynamic_re_evaluation": bool(pref_dyn_reeval),
+                "re_evaluation_interval": int(pref_reeval_interval),
+                "alerts": {
+                    "new_obstacle": bool(alert_new_obs),
+                    "recommendation_change": bool(alert_rec_change),
+                    "no_safe_zone": bool(alert_no_safe),
+                    "emergency_mode": bool(alert_em_mode)
+                }
+            }
+            drone_profiles.save_settings(updated_settings)
+            
+            # Sync to session state
+            st.session_state["setting_show_hazard_boxes"] = bool(pref_show_hazards)
+            st.session_state["setting_show_zone_overlays"] = bool(pref_show_overlays)
+            st.session_state["setting_show_detailed_reasons"] = bool(pref_show_reasons)
+            st.session_state["setting_dynamic_re_evaluation"] = bool(pref_dyn_reeval)
+            st.session_state["estimated_ground_width_m"] = float(new_ground_scale)
+            
+            st.success("✅ Settings saved successfully.")
+            st.toast("Settings saved successfully.")
+
+    with act_col2:
+        if st.button("🔄 Reset Preferences", use_container_width=True):
+            reset_settings = {
+                "default_drone": def_drone_name,
+                "estimated_ground_width_m": 10.0,
+                "show_hazard_boxes": True,
+                "show_zone_overlays": True,
+                "show_detailed_reasons": True,
+                "dynamic_re_evaluation": True,
+                "re_evaluation_interval": 3,
+                "alerts": {
+                    "new_obstacle": True,
+                    "recommendation_change": True,
+                    "no_safe_zone": True,
+                    "emergency_mode": True
+                }
+            }
+            drone_profiles.save_settings(reset_settings)
+            
+            st.session_state["estimated_ground_width_m"] = 10.0
+            st.session_state["setting_show_hazard_boxes"] = True
+            st.session_state["setting_show_zone_overlays"] = True
+            st.session_state["setting_show_detailed_reasons"] = True
+            st.session_state["setting_dynamic_re_evaluation"] = True
+            
+            st.success("✅ Preferences reset to default settings.")
+            st.toast("Preferences reset to default.")
+            st.rerun()

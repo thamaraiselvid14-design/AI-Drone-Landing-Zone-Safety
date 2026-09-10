@@ -142,61 +142,128 @@ def add_drone_profile(
     return save_all_drone_profiles(drones, filepath)
 
 
+DEFAULT_SETTINGS: Dict[str, Any] = {
+    "default_drone": "Rescue Drone",
+    "estimated_ground_width_m": 10.0,
+    "show_hazard_boxes": True,
+    "show_zone_overlays": True,
+    "show_detailed_reasons": True,
+    "dynamic_re_evaluation": True,
+    "re_evaluation_interval": 3,
+    "alerts": {
+        "new_obstacle": True,
+        "recommendation_change": True,
+        "no_safe_zone": True,
+        "emergency_mode": True
+    }
+}
+
+
+def load_settings(filepath: str = SETTINGS_FILE) -> Dict[str, Any]:
+    """Load settings from JSON, merging with DEFAULT_SETTINGS for missing keys."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    if not os.path.exists(filepath):
+        save_settings(DEFAULT_SETTINGS, filepath)
+        return dict(DEFAULT_SETTINGS)
+
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            if not isinstance(data, dict):
+                data = {}
+
+        merged = dict(DEFAULT_SETTINGS)
+        for k, v in data.items():
+            if k == "alerts" and isinstance(v, dict):
+                merged["alerts"] = dict(DEFAULT_SETTINGS["alerts"])
+                merged["alerts"].update(v)
+            else:
+                merged[k] = v
+        return merged
+    except Exception:
+        return dict(DEFAULT_SETTINGS)
+
+
+def save_settings(settings: Dict[str, Any], filepath: str = SETTINGS_FILE) -> bool:
+    """Save settings dictionary to JSON storage."""
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
+    try:
+        with open(filepath, "w", encoding="utf-8") as f:
+            json.dump(settings, f, indent=2)
+        return True
+    except Exception:
+        return False
+
+
 def get_default_drone_name(filepath: str = SETTINGS_FILE) -> Optional[str]:
     """Return the name of the configured default drone from data/settings.json.
 
     If no default drone is configured, or if the stored drone name no longer
     exists in drone_profiles.json, return None.
     """
-    if not os.path.exists(filepath):
+    settings = load_settings(filepath)
+    drone_name = settings.get("default_drone")
+    if not drone_name or not isinstance(drone_name, str):
         return None
 
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if not isinstance(data, dict):
-                return None
-
-            drone_name = data.get("default_drone")
-            if not drone_name or not isinstance(drone_name, str):
-                return None
-
-            # Verify that the stored drone name exists in drone_profiles.json
-            drones = load_drone_profiles()
-            existing_names = [d.get("name") for d in drones if isinstance(d, dict) and "name" in d]
-            if drone_name in existing_names:
-                return drone_name
-            return None
-    except Exception:
-        return None
+    # Verify that the stored drone name exists in drone_profiles.json
+    drones = load_drone_profiles()
+    existing_names = [d.get("name") for d in drones if isinstance(d, dict) and "name" in d]
+    if drone_name in existing_names:
+        return drone_name
+    return None
 
 
-def set_default_drone_name(drone_name: str, filepath: str = SETTINGS_FILE) -> bool:
-    """Save the default drone selection to settings.json."""
+def set_default_drone_name(drone_name: Optional[str], filepath: str = SETTINGS_FILE) -> bool:
+    """Save the default drone selection to settings.json, preserving other settings."""
+    settings = load_settings(filepath)
+    settings["default_drone"] = drone_name
+    return save_settings(settings, filepath)
+
+
+def set_default_drone(drone_name: Optional[str], filepath: str = SETTINGS_FILE) -> bool:
+    """Alias for set_default_drone_name."""
+    return set_default_drone_name(drone_name, filepath)
+
+
+def remove_default_drone_name(filepath: str = SETTINGS_FILE) -> bool:
+    """Remove default drone selection from settings.json and clear persisted default flags."""
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     try:
-        with open(filepath, "w", encoding="utf-8") as f:
-            json.dump({"default_drone": drone_name}, f, indent=2)
+        settings = load_settings(filepath)
+        settings["default_drone"] = None
+        save_settings(settings, filepath)
+        
+        # Clean any stored is_default/default flag in drone_profiles.json if present
+        drones = load_drone_profiles()
+        modified = False
+        for d in drones:
+            if isinstance(d, dict) and ("is_default" in d or "default" in d):
+                d.pop("is_default", None)
+                d.pop("default", None)
+                modified = True
+        if modified:
+            save_all_drone_profiles(drones)
+
         return True
     except Exception:
         return False
 
 
-def set_default_drone(drone_name: str, filepath: str = SETTINGS_FILE) -> bool:
-    """Alias for set_default_drone_name."""
-    return set_default_drone_name(drone_name, filepath)
+def remove_default_drone(filepath: str = SETTINGS_FILE) -> bool:
+    """Alias for remove_default_drone_name."""
+    return remove_default_drone_name(filepath)
 
 
 def get_drone_by_name(drone_name: Optional[str], filepath: str = PROFILES_FILE) -> Optional[Dict[str, Any]]:
-    """Find and return a drone dictionary by name."""
+    """Find and return a drone dictionary by name. Returns None if drone_name is None or not found."""
+    if not drone_name:
+        return None
     drones = load_drone_profiles(filepath)
     if not drones:
         return None
 
-    if not drone_name:
-        return drones[0]
-
     for d in drones:
         if isinstance(d, dict) and d.get("name") == drone_name:
             return d
-    return drones[0]
+    return None
