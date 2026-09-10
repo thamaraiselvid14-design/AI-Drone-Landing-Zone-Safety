@@ -1,0 +1,39 @@
+{
+  "drones": [
+    {
+      "name": "Rescue Drone",
+      "width_m": 1.8,
+      "length_m": 1.6,
+      "purpose": "Search & Rescue Operations",
+      "required_clearance_m": 3.5
+    },
+    {
+      "name": "Delivery Drone",
+      "width_m": 1.2,
+      "length_m": 1.0,
+      "purpose": "Medical & Cargo Delivery",
+      "required_clearance_m": 2.5
+    },
+    {
+      "name": "Surveillance Drone",
+      "width_m": 0.7,
+      "length_m": 0.7,
+      "purpose": "Reconnaissance & Aerial Inspection",
+      "required_clearance_m": 1.5
+    },
+    {
+      "name": "Heavy Cargo Drone X1",
+      "width_m": 2.5,
+      "length_m": 2.2,
+      "purpose": "Heavy Freight Transport",
+      "required_clearance_m": 4.5
+    },
+    {
+      "name": "Test Rescue Drone 99",
+      "width_m": 2.0,
+      "length_m": 1.8,
+      "purpose": "Test Purpose",
+      "required_clearance_m": 4.0
+    }
+  ]
+}
