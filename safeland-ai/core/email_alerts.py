@@ -17,6 +17,14 @@ except ImportError:
     pass
 
 
+def is_render_environment() -> bool:
+    """
+    Detect whether the application is running in a Render cloud environment.
+    Checks environment variables set by Render infrastructure.
+    """
+    return any(k in os.environ for k in ["RENDER", "RENDER_SERVICE_ID", "RENDER_EXTERNAL_URL"])
+
+
 def get_email_credentials() -> tuple[str, str, str]:
     """
     Retrieve email credentials from environment variables.

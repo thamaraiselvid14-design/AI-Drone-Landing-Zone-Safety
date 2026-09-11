@@ -9,11 +9,10 @@ import numpy as np
 import cv2
 import os
 
+import streamlit as st
+
 # COCO hazard classes to detect
 HAZARD_CLASSES = {"person", "bicycle", "car", "motorcycle", "bus", "truck"}
-
-# Cached YOLO model instance
-_YOLO_MODEL = None
 
 
 def is_valid_frame(frame: Any) -> bool:
@@ -21,18 +20,38 @@ def is_valid_frame(frame: Any) -> bool:
     return isinstance(frame, np.ndarray) and frame.size > 0
 
 
+@st.cache_resource
 def load_yolo_model():
-    """Lazy load and cache the YOLOv8n model instance safely."""
-    global _YOLO_MODEL
-    if _YOLO_MODEL is not None:
-        return _YOLO_MODEL
-
+    """Lazy load and cache the YOLOv8n model instance on CPU safely."""
     try:
+        try:
+            import torch
+            torch.set_num_threads(2)
+        except Exception:
+            pass
         from ultralytics import YOLO
-        _YOLO_MODEL = YOLO("yolov8n.pt")
-        return _YOLO_MODEL
+        model = YOLO("yolov8n.pt")
+        return model
     except Exception:
         return None
+
+
+def is_yolo_loaded() -> bool:
+    """Check if YOLOv8n model is loaded and ready."""
+    return load_yolo_model() is not None
+
+
+def resize_frame_if_needed(frame: np.ndarray, max_dim: int = 640) -> np.ndarray:
+    """Resize image preserving aspect ratio if max dimension exceeds max_dim pixels."""
+    if not is_valid_frame(frame):
+        return frame
+    h, w = frame.shape[:2]
+    if max(h, w) > max_dim:
+        scale = float(max_dim) / float(max(h, w))
+        new_w = max(1, int(w * scale))
+        new_h = max(1, int(h * scale))
+        return cv2.resize(frame, (new_w, new_h), interpolation=cv2.INTER_AREA)
+    return frame
 
 
 def boxes_overlap(box1: List[int], box2: List[int], padding: int = 15, overlap_threshold: float = 0.15) -> bool:
@@ -256,17 +275,22 @@ def analyze_scene(frame: np.ndarray, conf_threshold: float = 0.30) -> Dict[str, 
 
     if not is_valid_frame(frame):
         empty_result["error"] = "Invalid frame provided."
+        empty_result["detection_mode"] = "Prototype Fallback"
         return empty_result
+
+    # Memory optimization: Cap maximum image dimension to 640px for inference
+    eval_frame = resize_frame_if_needed(frame, max_dim=640)
 
     detections = []
     hazards = []
     ignored_objects = []
+    detection_mode = "Prototype Fallback"
 
     model = load_yolo_model()
 
     if model is not None:
         try:
-            results = model(frame, conf=conf_threshold, verbose=False)
+            results = model(eval_frame, conf=conf_threshold, verbose=False, device="cpu")
             if results and len(results) > 0:
                 boxes = results[0].boxes
                 names = model.names
@@ -293,16 +317,19 @@ def analyze_scene(frame: np.ndarray, conf_threshold: float = 0.30) -> Dict[str, 
                         hazards.append(item)
                     else:
                         ignored_objects.append(item)
+            detection_mode = "YOLOv8n"
         except Exception as e:
-            empty_result["error"] = f"Detection execution error: {str(e)}"
+            empty_result["error"] = f"YOLO inference error: {str(e)}"
+            detection_mode = "Prototype Fallback"
     else:
         empty_result["error"] = "YOLOv8n model unavailable."
+        detection_mode = "Prototype Fallback"
 
-    # Discover open landing candidate regions
-    candidate_zones = find_candidate_landing_zones(frame, hazards, max_zones=4)
+    # Discover open landing candidate regions using OpenCV edge density heuristics
+    candidate_zones = find_candidate_landing_zones(eval_frame, hazards, max_zones=4)
 
     # Annotate frame copy
-    annotated_frame = draw_scene_analysis(frame, hazards, candidate_zones)
+    annotated_frame = draw_scene_analysis(eval_frame, hazards, candidate_zones)
 
     return {
         "detections": detections,
@@ -310,5 +337,6 @@ def analyze_scene(frame: np.ndarray, conf_threshold: float = 0.30) -> Dict[str, 
         "ignored_objects": ignored_objects,
         "candidate_zones": candidate_zones,
         "annotated_frame": annotated_frame,
+        "detection_mode": detection_mode,
         "error": empty_result["error"]
     }

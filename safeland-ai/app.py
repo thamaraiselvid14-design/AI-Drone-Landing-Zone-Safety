@@ -592,7 +592,8 @@ def send_analysis_email(
     hazards: List[Dict[str, Any]],
     input_source: str,
     is_re_analysis: bool = False,
-    prev_recommendation: Optional[Dict[str, Any]] = None
+    prev_recommendation: Optional[Dict[str, Any]] = None,
+    detection_mode: Optional[str] = None
 ) -> Dict[str, Any]:
     """Build analysis report and send email alert via email_alerts module."""
     active_mission_id = st.session_state.get("active_mission_id", st.session_state.get("current_mission_id", "N/A"))
@@ -601,6 +602,8 @@ def send_analysis_email(
     rec_score = decision_res.get("score", 0)
     rec_status = decision_res.get("status", "UNSAFE")
     
+    det_mode_str = detection_mode if detection_mode else st.session_state.get("last_detection_mode", "YOLOv8n")
+
     # Check if final result is NO SAFE LANDING ZONE
     is_no_safe_zone = (curr_dec_type not in ["RECOMMEND", "EMERGENCY_FALLBACK"]) or (rec_status != "SAFE" and curr_dec_type != "EMERGENCY_FALLBACK")
     
@@ -617,6 +620,8 @@ def send_analysis_email(
     lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     lines.append(f"Drone Profile: {selected_drone_name}")
     lines.append(f"Input Source: {input_source.upper()}")
+    lines.append(f"Detection Mode: {det_mode_str}")
+    lines.append(f"Emergency Mode: {'ON' if st.session_state.get('emergency_mode') else 'OFF'}")
     lines.append("")
 
     lines.append("DECISION SUMMARY:")
@@ -673,7 +678,8 @@ def send_analysis_email(
 def send_zone_selection_email(
     selected_drone_name: str,
     selected_zone: Dict[str, Any],
-    active_mission_id: str
+    active_mission_id: str,
+    detection_mode: Optional[str] = None
 ) -> Dict[str, Any]:
     """Build zone selection report and send email alert via email_alerts module."""
     z_label = selected_zone.get("label", selected_zone.get("name", "Zone"))
@@ -681,6 +687,8 @@ def send_zone_selection_email(
     status = selected_zone.get("status", "SAFE")
     clr = "Passed" if selected_zone.get("clearance_passed") else "Failed"
     reasons = selected_zone.get("reasons", [])
+
+    det_mode_str = detection_mode if detection_mode else st.session_state.get("last_detection_mode", "YOLOv8n")
 
     subject = f"SafeLand AI — Zone Selected ({z_label})"
 
@@ -694,6 +702,8 @@ def send_zone_selection_email(
     lines.append(f"Safety Score: {score}/100")
     lines.append(f"Status: {status}")
     lines.append(f"Clearance Requirement: {clr}")
+    lines.append(f"Detection Mode: {det_mode_str}")
+    lines.append(f"Emergency Mode: {'ON' if st.session_state.get('emergency_mode') else 'OFF'}")
     lines.append("")
     lines.append("EVALUATION REASONS / HAZARD METRICS:")
     if reasons:
@@ -1241,6 +1251,9 @@ if st.session_state["current_page"] == "Dashboard":
             is_re_analysis_run = is_ongoing_mission
             prev_rec_dict = {"zone": st.session_state.get("previous_recommended_zone"), "score": st.session_state.get("previous_top_score", 0)} if is_ongoing_mission else None
             
+            det_mode_str = analysis_res.get("detection_mode", "YOLOv8n")
+            st.session_state["last_detection_mode"] = det_mode_str
+
             drone_name_str = selected_drone.get("name", "Rescue Drone") if selected_drone else "Rescue Drone"
             email_res = send_analysis_email(
                 selected_drone_name=drone_name_str,
@@ -1272,6 +1285,10 @@ if st.session_state["current_page"] == "Dashboard":
 
         st.markdown("---")
         st.markdown("### 🎯 MAIN LANDING ANALYSIS DASHBOARD")
+
+        # Display Prototype Fallback Warning if fallback active
+        if res.get("detection_mode") == "Prototype Fallback":
+            st.warning("⚠️ Prototype fallback mode active. (YOLO model unavailable or resource fallback engaged)")
 
         # Display Email Alert Feedback Status if generated in this session
         if st.session_state.get("analysis_email_status_msg"):
@@ -2446,6 +2463,46 @@ elif st.session_state["current_page"] == "Settings":
 
     if st.session_state.get("last_email_message"):
         st.caption(f"Last Email Message: {st.session_state['last_email_message']}")
+
+    st.markdown("---")
+
+    # DEPLOYMENT DIAGNOSTICS CARD
+    st.markdown("### ☁️ Deployment Diagnostics")
+    is_render = email_alerts.is_render_environment()
+    env_label = "RENDER" if is_render else "LOCAL"
+    yolo_loaded = scene_analysis.is_yolo_loaded()
+    last_det_mode = st.session_state.get("last_detection_mode", "YOLOv8n" if yolo_loaded else "Prototype Fallback")
+    email_cfg = "READY" if email_alerts.is_email_configured() else "NOT CONFIGURED"
+    active_inp_type = str(st.session_state.get("active_input_type", "None")).title()
+
+    diag_html = f"""
+    <div style="background-color: #111520; border: 1px solid #1E2638; border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px;">
+            <div>
+                <div style="font-size: 0.78rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Deployment Environment</div>
+                <div style="font-size: 1.05rem; font-weight: 800; color: {'#38BDF8' if is_render else '#34D399'};">{env_label}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.78rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Detection Mode</div>
+                <div style="font-size: 1.05rem; font-weight: 800; color: {'#10B981' if last_det_mode == 'YOLOv8n' else '#F59E0B'};">{last_det_mode}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.78rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Email Configuration</div>
+                <div style="font-size: 1.05rem; font-weight: 800; color: {'#10B981' if email_cfg == 'READY' else '#EF4444'};">{email_cfg}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.78rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Current Input</div>
+                <div style="font-size: 1.05rem; font-weight: 800; color: #F8FAFC;">{active_inp_type}</div>
+            </div>
+            <div>
+                <div style="font-size: 0.78rem; color: #94A3B8; font-weight: 700; text-transform: uppercase;">Model Loaded</div>
+                <div style="font-size: 1.05rem; font-weight: 800; color: {'#10B981' if yolo_loaded else '#EF4444'};">{'YES' if yolo_loaded else 'NO'}</div>
+            </div>
+        </div>
+    </div>
+    """
+    st.markdown(diag_html, unsafe_allow_html=True)
+    st.caption("ℹ️ Note: Prototype history and settings stored locally on Render Free disk may reset after cloud service restart or redeployment.")
 
     st.markdown("---")
 

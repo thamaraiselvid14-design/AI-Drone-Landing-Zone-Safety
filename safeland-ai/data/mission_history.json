@@ -588,6 +588,30 @@
         "✓ No nearby dynamic hazards",
         "✓ Large landing margin"
       ]
+    },
+    {
+      "mission_id": "SL-20260911-025",
+      "timestamp": "2026-09-11T07:43:41",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
     }
   ]
 }
