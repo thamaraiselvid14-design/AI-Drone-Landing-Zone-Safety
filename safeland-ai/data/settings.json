@@ -10,6 +10,7 @@
     "new_obstacle": true,
     "recommendation_change": true,
     "no_safe_zone": false,
-    "emergency_mode": true
+    "emergency_mode": true,
+    "email_alerts_enabled": true
   }
 }

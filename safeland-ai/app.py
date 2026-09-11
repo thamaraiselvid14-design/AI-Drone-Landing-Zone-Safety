@@ -20,6 +20,7 @@ import core.history as history
 import core.input_handler as input_handler
 import core.chat_assistant as chat_assistant
 import core.voice_assistant as voice_assistant
+import core.email_alerts as email_alerts
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -584,6 +585,138 @@ def record_mission_event(event_type: str, description: str, icon: str = "ℹ️"
     })
     st.session_state["mission_events"] = events
 
+def send_analysis_email(
+    selected_drone_name: str,
+    decision_res: Dict[str, Any],
+    ranked_zones: List[Dict[str, Any]],
+    hazards: List[Dict[str, Any]],
+    input_source: str,
+    is_re_analysis: bool = False,
+    prev_recommendation: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """Build analysis report and send email alert via email_alerts module."""
+    active_mission_id = st.session_state.get("active_mission_id", st.session_state.get("current_mission_id", "N/A"))
+    curr_dec_type = decision_res.get("decision")
+    rec_label = decision_res.get("recommended_zone")
+    rec_score = decision_res.get("score", 0)
+    rec_status = decision_res.get("status", "UNSAFE")
+    
+    # Check if final result is NO SAFE LANDING ZONE
+    is_no_safe_zone = (curr_dec_type not in ["RECOMMEND", "EMERGENCY_FALLBACK"]) or (rec_status != "SAFE" and curr_dec_type != "EMERGENCY_FALLBACK")
+    
+    if is_no_safe_zone:
+        subject = "🚨 SafeLand AI — NO SAFE LANDING ZONE"
+    else:
+        prefix = "Re-Analysis Report" if is_re_analysis else "Landing Analysis Report"
+        subject = f"SafeLand AI — {prefix} ({selected_drone_name})"
+
+    lines = []
+    lines.append("SAFELAND AI LANDING ZONE ANALYSIS REPORT")
+    lines.append("=" * 45)
+    lines.append(f"Mission ID: {active_mission_id}")
+    lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"Drone Profile: {selected_drone_name}")
+    lines.append(f"Input Source: {input_source.upper()}")
+    lines.append("")
+
+    lines.append("DECISION SUMMARY:")
+    lines.append(f"Decision Type: {curr_dec_type}")
+    if is_no_safe_zone:
+        lines.append("Status: 🔴 NO SAFE LANDING ZONE DETECTED")
+        lines.append("Summary: Candidate regions were evaluated, but none satisfied the required clearance or safety threshold.")
+    else:
+        lines.append(f"Recommended Zone: {rec_label}")
+        lines.append(f"Safety Score: {rec_score}/100")
+        lines.append(f"Safety Status: {rec_status}")
+
+    if is_re_analysis and prev_recommendation:
+        prev_zone = prev_recommendation.get("zone", "None")
+        prev_score = prev_recommendation.get("score", 0)
+        lines.append("")
+        lines.append("RE-ANALYSIS CHANGE DETECTED:")
+        lines.append(f"Previous Recommendation: Zone {prev_zone} (Score: {prev_score}/100)")
+        lines.append(f"New Recommendation: Zone {rec_label} (Score: {rec_score}/100)")
+
+    lines.append("")
+    lines.append(f"CANDIDATE ZONES ({len(ranked_zones)}):")
+    if not ranked_zones:
+        lines.append("  None detected.")
+    else:
+        for z in ranked_zones:
+            z_lbl = z.get("label", "Zone")
+            z_score = z.get("score", 0)
+            z_stat = z.get("status", "UNSAFE")
+            z_clr = "Passed" if z.get("clearance_passed") else "Failed"
+            lines.append(f"  - Zone {z_lbl}: Score {z_score}/100 | Status: {z_stat} | Clearance: {z_clr}")
+
+    lines.append("")
+    lines.append(f"DETECTED HAZARDS ({len(hazards)}):")
+    if not hazards:
+        lines.append("  None detected.")
+    else:
+        for h in hazards:
+            cls = h.get("class_name", "hazard")
+            conf = h.get("confidence", 0.0)
+            lines.append(f"  - {cls} (confidence: {conf:.2f})")
+
+    lines.append("")
+    lines.append("=" * 45)
+    lines.append("Final landing authority remains with the pilot-in-command / ground operator.")
+
+    body = "\n".join(lines)
+    res = email_alerts.send_email_alert(subject, body)
+    st.session_state["last_email_status"] = "SENT" if res.get("success") else "FAILED"
+    st.session_state["last_email_message"] = res.get("message", "")
+    return res
+
+
+def send_zone_selection_email(
+    selected_drone_name: str,
+    selected_zone: Dict[str, Any],
+    active_mission_id: str
+) -> Dict[str, Any]:
+    """Build zone selection report and send email alert via email_alerts module."""
+    z_label = selected_zone.get("label", selected_zone.get("name", "Zone"))
+    score = selected_zone.get("score", 0)
+    status = selected_zone.get("status", "SAFE")
+    clr = "Passed" if selected_zone.get("clearance_passed") else "Failed"
+    reasons = selected_zone.get("reasons", [])
+
+    subject = f"SafeLand AI — Zone Selected ({z_label})"
+
+    lines = []
+    lines.append("SAFELAND AI OPERATOR ZONE SELECTION")
+    lines.append("=" * 45)
+    lines.append(f"Mission ID: {active_mission_id}")
+    lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    lines.append(f"Drone Profile: {selected_drone_name}")
+    lines.append(f"Selected Zone: Zone {z_label}")
+    lines.append(f"Safety Score: {score}/100")
+    lines.append(f"Status: {status}")
+    lines.append(f"Clearance Requirement: {clr}")
+    lines.append("")
+    lines.append("EVALUATION REASONS / HAZARD METRICS:")
+    if reasons:
+        for r in reasons:
+            lines.append(f"  - {r}")
+    else:
+        lines.append("  - Clear ground area with required drone clearance.")
+    lines.append("")
+    lines.append("=" * 45)
+    lines.append("Zone selected by operator for review and landing execution.")
+
+    body = "\n".join(lines)
+    res = email_alerts.send_email_alert(subject, body)
+    st.session_state["last_email_status"] = "SENT" if res.get("success") else "FAILED"
+    st.session_state["last_email_message"] = res.get("message", "")
+    return res
+
+
+if "last_email_status" not in st.session_state:
+    st.session_state["last_email_status"] = "NOT SENT"
+if "last_email_message" not in st.session_state:
+    st.session_state["last_email_message"] = ""
+
 # Synchronize Settings from data/settings.json into st.session_state
 saved_settings = drone_profiles.load_settings()
 if "settings_loaded" not in st.session_state:
@@ -943,7 +1076,11 @@ if st.session_state["current_page"] == "Dashboard":
     has_prev = bool(st.session_state.get("previous_decision")) and (st.session_state.get("input_source") in ["video", "camera"])
     btn_label = "🔄 RE-ANALYZE CURRENT FRAME" if has_prev else "🚀 START AI ANALYSIS"
     
-    if st.button(btn_label, type="primary", disabled=not frame_ready, use_container_width=True, key="btn_start_ai_analysis"):
+    auto_trigger = bool(st.session_state.get("trigger_re_analyze"))
+    if auto_trigger:
+        st.session_state["trigger_re_analyze"] = False
+
+    if st.button(btn_label, type="primary", disabled=not frame_ready, use_container_width=True, key="btn_start_ai_analysis") or auto_trigger:
         if not selected_drone:
             st.warning("⚠️ No default drone selected. Please select a drone profile before running landing analysis.")
         else:
@@ -1100,6 +1237,25 @@ if st.session_state["current_page"] == "Dashboard":
             st.session_state["previous_decision"] = decision_res
             st.session_state["previous_hazards"] = hazards
 
+            # Trigger Email Alert
+            is_re_analysis_run = is_ongoing_mission
+            prev_rec_dict = {"zone": st.session_state.get("previous_recommended_zone"), "score": st.session_state.get("previous_top_score", 0)} if is_ongoing_mission else None
+            
+            drone_name_str = selected_drone.get("name", "Rescue Drone") if selected_drone else "Rescue Drone"
+            email_res = send_analysis_email(
+                selected_drone_name=drone_name_str,
+                decision_res=decision_res,
+                ranked_zones=ranked_zones,
+                hazards=hazards,
+                input_source=st.session_state.get("input_source", "image"),
+                is_re_analysis=is_re_analysis_run,
+                prev_recommendation=prev_rec_dict
+            )
+            if email_res.get("success"):
+                st.session_state["analysis_email_status_msg"] = ("success", "📧 Analysis email sent successfully.")
+            else:
+                st.session_state["analysis_email_status_msg"] = ("error", f"📧 Email alert error: {email_res.get('message')}")
+
             st.toast("Scene Understanding & Re-Evaluation complete!")
 
     # Display Main Analysis Dashboard if analysis results exist
@@ -1116,6 +1272,14 @@ if st.session_state["current_page"] == "Dashboard":
 
         st.markdown("---")
         st.markdown("### 🎯 MAIN LANDING ANALYSIS DASHBOARD")
+
+        # Display Email Alert Feedback Status if generated in this session
+        if st.session_state.get("analysis_email_status_msg"):
+            msg_type, msg_text = st.session_state["analysis_email_status_msg"]
+            if msg_type == "success":
+                st.success(msg_text)
+            else:
+                st.error(msg_text)
 
         # RENDER DYNAMIC RE-EVALUATION ALERTS BANNER
         if st.session_state.get("re_eval_alerts"):
@@ -1338,6 +1502,9 @@ if st.session_state["current_page"] == "Dashboard":
                     else:
                         st.success(f"✅ **{sel_lbl}** selected for operator review.\n\n*Final landing authority remains with the authorized operator/control system.*")
 
+                if st.session_state.get("selection_email_msg"):
+                    st.info(st.session_state["selection_email_msg"])
+
                 # 3. CANDIDATE ZONE ACTION CARDS
                 st.markdown("#### 🎯 Candidate Zone Actions")
                 if ranked_zones:
@@ -1379,6 +1546,16 @@ if st.session_state["current_page"] == "Dashboard":
                                 sel_info["is_emergency_candidate"] = False
                                 st.session_state["selected_landing_zone"] = sel_info
                                 st.toast(f"✅ {z_label} selected for operator review.")
+
+                                email_res = send_zone_selection_email(
+                                    selected_drone.get("name", "Drone") if selected_drone else "Drone",
+                                    sel_info,
+                                    st.session_state.get("active_mission_id", st.session_state.get("current_mission_id", "N/A"))
+                                )
+                                if email_res.get("success"):
+                                    st.session_state["selection_email_msg"] = f"📧 Selection email sent successfully for {z_label}."
+                                else:
+                                    st.session_state["selection_email_msg"] = f"📧 Selection email error: {email_res.get('message')}"
                                 st.rerun()
 
                         elif z_status == "CAUTION" or (50 <= z_score < 80 and clr_passed):
@@ -1449,6 +1626,16 @@ if st.session_state["current_page"] == "Dashboard":
                         em_sel_info["is_emergency_candidate"] = True
                         st.session_state["selected_landing_zone"] = em_sel_info
                         st.toast(f"✅ Emergency candidate {em_label} selected for operator review.")
+
+                        email_res = send_zone_selection_email(
+                            selected_drone.get("name", "Drone") if selected_drone else "Drone",
+                            em_sel_info,
+                            st.session_state.get("active_mission_id", st.session_state.get("current_mission_id", "N/A"))
+                        )
+                        if email_res.get("success"):
+                            st.session_state["selection_email_msg"] = f"📧 Selection email sent successfully for Emergency Zone {em_label}."
+                        else:
+                            st.session_state["selection_email_msg"] = f"📧 Selection email error: {email_res.get('message')}"
                         st.rerun()
 
                 st.caption("SafeLand AI provides landing decision support only. Final landing authority remains with the authorized operator/control system.")
@@ -2215,9 +2402,9 @@ elif st.session_state["current_page"] == "Settings":
 
     st.markdown("---")
 
-    # SECTION F — ALERT PREFERENCES
-    st.markdown("### 🔔 6. Alert Preferences")
-    st.caption("Control notification display thresholds for active scene events.")
+    # SECTION F — ALERT PREFERENCES & EMAIL ALERTS
+    st.markdown("### 🔔 6. Alert Preferences & Email Alerts")
+    st.caption("Control notification display thresholds and test automated email alerts.")
     saved_alerts = saved_settings.get("alerts", {})
     alert_col1, alert_col2 = st.columns(2)
     with alert_col1:
@@ -2226,6 +2413,39 @@ elif st.session_state["current_page"] == "Settings":
     with alert_col2:
         alert_no_safe = st.checkbox("Alert when no safe landing zone exists", value=bool(saved_alerts.get("no_safe_zone", True)))
         alert_em_mode = st.checkbox("Alert when Emergency Mode activates", value=bool(saved_alerts.get("emergency_mode", True)))
+        alert_email_enabled = st.checkbox("Enable Email Alerts", value=bool(saved_alerts.get("email_alerts_enabled", True)))
+
+    st.markdown("#### 📧 Email Configuration & Diagnostics")
+    email_ready = email_alerts.is_email_configured()
+    email_status_str = st.session_state.get("last_email_status", "NOT SENT")
+    
+    diag_col1, diag_col2, diag_col3 = st.columns([1.5, 1.5, 1.5])
+    with diag_col1:
+        cfg_color = "#10B981" if email_ready else "#EF4444"
+        cfg_text = "READY" if email_ready else "NOT CONFIGURED"
+        st.markdown(f"**Email Configuration:** <span style='color: {cfg_color}; font-weight: 800;'>{cfg_text}</span>", unsafe_allow_html=True)
+    with diag_col2:
+        st_color = "#10B981" if email_status_str == "SENT" else ("#EF4444" if email_status_str == "FAILED" else "#94A3B8")
+        st.markdown(f"**Last Email Status:** <span style='color: {st_color}; font-weight: 800;'>{email_status_str}</span>", unsafe_allow_html=True)
+    with diag_col3:
+        if st.button("📧 SEND TEST EMAIL", use_container_width=True):
+            test_res = email_alerts.send_email_alert(
+                "SafeLand AI — Test Email",
+                "This is a test email sent from SafeLand AI Settings panel to verify Gmail SMTP configuration."
+            )
+            if test_res.get("success"):
+                st.session_state["last_email_status"] = "SENT"
+                st.session_state["last_email_message"] = "Test email sent successfully."
+                st.success("📧 Test email sent successfully.")
+                st.toast("📧 Test email sent successfully.")
+            else:
+                st.session_state["last_email_status"] = "FAILED"
+                st.session_state["last_email_message"] = test_res.get("message", "Error sending test email")
+                st.error(f"📧 Test email failed: {test_res.get('message')}")
+                st.toast("📧 Test email failed.")
+
+    if st.session_state.get("last_email_message"):
+        st.caption(f"Last Email Message: {st.session_state['last_email_message']}")
 
     st.markdown("---")
 

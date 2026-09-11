@@ -372,6 +372,222 @@
         "✓ No nearby dynamic hazards",
         "✓ Large landing margin"
       ]
+    },
+    {
+      "mission_id": "SL-20260911-016",
+      "timestamp": "2026-09-11T05:52:33",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-017",
+      "timestamp": "2026-09-11T05:58:10",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-018",
+      "timestamp": "2026-09-11T06:04:26",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 3,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-019",
+      "timestamp": "2026-09-11T06:05:18",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-020",
+      "timestamp": "2026-09-11T06:07:37",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-021",
+      "timestamp": "2026-09-11T06:07:56",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-022",
+      "timestamp": "2026-09-11T06:16:24",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-023",
+      "timestamp": "2026-09-11T06:30:52",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-024",
+      "timestamp": "2026-09-11T06:31:50",
+      "drone_used": "Delivery Drone",
+      "input_type": "image",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
     }
   ]
 }
