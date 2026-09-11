@@ -613,6 +613,8 @@ def send_analysis_email(
         prefix = "Re-Analysis Report" if is_re_analysis else "Landing Analysis Report"
         subject = f"SafeLand AI — {prefix} ({selected_drone_name})"
 
+    top_zone_str = f"Zone {rec_label}" if rec_label else "None"
+
     lines = []
     lines.append("SAFELAND AI LANDING ZONE ANALYSIS REPORT")
     lines.append("=" * 45)
@@ -621,6 +623,10 @@ def send_analysis_email(
     lines.append(f"Drone Profile: {selected_drone_name}")
     lines.append(f"Input Source: {input_source.upper()}")
     lines.append(f"Detection Mode: {det_mode_str}")
+    lines.append(f"Candidate Count: {len(ranked_zones)}")
+    lines.append(f"Hazard Count: {len(hazards)}")
+    lines.append(f"Top-Ranked Zone: {top_zone_str}")
+    lines.append(f"Final Landing Decision: {curr_dec_type}")
     lines.append(f"Emergency Mode: {'ON' if st.session_state.get('emergency_mode') else 'OFF'}")
     lines.append("")
 
@@ -666,7 +672,7 @@ def send_analysis_email(
 
     lines.append("")
     lines.append("=" * 45)
-    lines.append("Final landing authority remains with the pilot-in-command / ground operator.")
+    lines.append("Action performed by a user accessing the public SafeLand AI deployment.")
 
     body = "\n".join(lines)
     res = email_alerts.send_email_alert(subject, body)
@@ -687,21 +693,27 @@ def send_zone_selection_email(
     status = selected_zone.get("status", "SAFE")
     clr = "Passed" if selected_zone.get("clearance_passed") else "Failed"
     reasons = selected_zone.get("reasons", [])
+    is_em = selected_zone.get("is_emergency_candidate", False)
 
     det_mode_str = detection_mode if detection_mode else st.session_state.get("last_detection_mode", "YOLOv8n")
+    input_source_str = str(st.session_state.get("input_source", "image")).upper()
 
-    subject = f"SafeLand AI — Zone Selected ({z_label})"
+    if is_em:
+        subject = f"SafeLand AI — Public User Selected Emergency Zone ({z_label})"
+    else:
+        subject = f"SafeLand AI — Public User Selected {z_label}"
 
     lines = []
-    lines.append("SAFELAND AI OPERATOR ZONE SELECTION")
+    lines.append("SAFELAND AI OPERATOR ZONE SELECTION ALERT")
     lines.append("=" * 45)
     lines.append(f"Mission ID: {active_mission_id}")
     lines.append(f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    lines.append(f"Drone Profile: {selected_drone_name}")
+    lines.append(f"Selected Drone: {selected_drone_name}")
+    lines.append(f"Input Source: {input_source_str}")
     lines.append(f"Selected Zone: Zone {z_label}")
     lines.append(f"Safety Score: {score}/100")
     lines.append(f"Status: {status}")
-    lines.append(f"Clearance Requirement: {clr}")
+    lines.append(f"Clearance Result: {clr}")
     lines.append(f"Detection Mode: {det_mode_str}")
     lines.append(f"Emergency Mode: {'ON' if st.session_state.get('emergency_mode') else 'OFF'}")
     lines.append("")
@@ -713,7 +725,7 @@ def send_zone_selection_email(
         lines.append("  - Clear ground area with required drone clearance.")
     lines.append("")
     lines.append("=" * 45)
-    lines.append("Zone selected by operator for review and landing execution.")
+    lines.append("Action performed by a user accessing the public SafeLand AI deployment.")
 
     body = "\n".join(lines)
     res = email_alerts.send_email_alert(subject, body)

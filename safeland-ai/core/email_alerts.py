@@ -29,10 +29,13 @@ def get_email_credentials() -> tuple[str, str, str]:
     """
     Retrieve email credentials from environment variables.
     Returns (sender, password, receiver).
+    Receiver defaults to fixed owner email: thamaraiselvid14@gmail.com
     """
     sender = os.environ.get("SAFELAND_EMAIL_SENDER", "").strip()
     password = os.environ.get("SAFELAND_EMAIL_PASSWORD", "").strip()
-    receiver = os.environ.get("SAFELAND_EMAIL_RECEIVER", "").strip()
+    receiver = os.environ.get("SAFELAND_EMAIL_RECEIVER", "thamaraiselvid14@gmail.com").strip()
+    if not receiver:
+        receiver = "thamaraiselvid14@gmail.com"
     return sender, password, receiver
 
 

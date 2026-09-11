@@ -612,6 +612,150 @@
         "✓ No nearby dynamic hazards",
         "✓ Large landing margin"
       ]
+    },
+    {
+      "mission_id": "SL-20260911-026",
+      "timestamp": "2026-09-11T08:13:08",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-027",
+      "timestamp": "2026-09-11T08:13:58",
+      "drone_used": "Delivery Drone",
+      "input_type": "image",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-028",
+      "timestamp": "2026-09-11T08:14:17",
+      "drone_used": "Delivery Drone",
+      "input_type": "image",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-029",
+      "timestamp": "2026-09-11T08:14:49",
+      "drone_used": "Delivery Drone",
+      "input_type": "image",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-030",
+      "timestamp": "2026-09-11T08:23:49",
+      "drone_used": "Delivery Drone",
+      "input_type": "video",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "obstacle_updates": [],
+      "final_status": "NO_SAFE_ZONE",
+      "final_recommendation": {
+        "zone": null,
+        "score": 45,
+        "status": "NO_SAFE_ZONE"
+      },
+      "top_zone_reasons": [
+        "✕ Insufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✕ Zone area below clearance requirement"
+      ]
+    },
+    {
+      "mission_id": "SL-20260911-031",
+      "timestamp": "2026-09-11T08:32:01",
+      "drone_used": "Delivery Drone",
+      "input_type": "camera",
+      "candidate_count": 4,
+      "initial_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "obstacle_updates": [],
+      "final_status": "RECOMMENDED",
+      "final_recommendation": {
+        "zone": "Zone A",
+        "score": 100,
+        "status": "SAFE"
+      },
+      "top_zone_reasons": [
+        "✓ Sufficient landing clearance",
+        "✓ No nearby dynamic hazards",
+        "✓ Large landing margin"
+      ]
     }
   ]
 }
