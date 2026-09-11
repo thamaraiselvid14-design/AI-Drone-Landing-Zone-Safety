@@ -1266,18 +1266,31 @@ if st.session_state["current_page"] == "Dashboard":
                     st.image(rgb_sel, caption=f"Manual Selected Area ({x2_px - x1_px}×{y2_px - y1_px} px)", width="stretch")
 
         # -------------------------------------------------------------
-        # RIGHT COLUMN (30% - COMPACT INTELLIGENCE CONSOLE)
+        # RIGHT COLUMN (30% - COMPACT INTELLIGENCE CONSOLE & ACTIONS)
         # -------------------------------------------------------------
         with right_col:
             if analysis_mode == "Automatic Detection":
-                decision = decision_res.get("decision", "NO_SAFE_ZONE")
+                # Determine safe zones strictly
+                safe_candidate_zones = []
+                for rz in ranked_zones:
+                    rz_label = rz.get("label", "")
+                    rz_score = rz.get("score", 0)
+                    rz_status = rz.get("status", "UNSAFE")
+                    clr_obj = next((c for c in clearance_results if c.get("label") == rz_label), None)
+                    clr_passed = bool(clr_obj and (clr_obj.get("passed", False) or clr_obj.get("clearance", {}).get("passed", False)))
+                    
+                    if clr_passed and rz_score >= landing_engine.SAFE_THRESHOLD and rz_status == "SAFE":
+                        safe_candidate_zones.append(rz)
 
-                if decision == "RECOMMEND" and recommended_zone:
-                    rec_name = decision_res.get("recommended_zone", "Zone A")
-                    rec_score = decision_res.get("score", 0)
-                    rec_status = decision_res.get("status", "SAFE")
-                    rec_reasons = recommended_zone.get("reasons", [])
+                has_safe_zone = (len(safe_candidate_zones) > 0)
+                top_safe_label = safe_candidate_zones[0].get("label") if has_safe_zone else None
 
+                # 1. TOP SUMMARY CARD
+                if has_safe_zone:
+                    top_safe_z = safe_candidate_zones[0]
+                    rec_name = top_safe_z.get("label", "Zone A")
+                    rec_score = top_safe_z.get("score", 0)
+                    rec_reasons = top_safe_z.get("reasons", [])
                     reasons_bullets = "".join([f"<li style='margin-bottom: 4px;'>{r}</li>" for r in rec_reasons[:3]])
 
                     st.markdown(f"""
@@ -1290,92 +1303,153 @@ if st.session_state["current_page"] == "Dashboard":
                             <div style="font-size: 1.4rem; font-weight: 800; color: #34D399;">{rec_score} <span style="font-size: 0.85rem; color: #A7F3D0;">/ 100</span></div>
                         </div>
                         <div style="display: inline-block; background-color: rgba(255,255,255,0.2); color: #FFFFFF; padding: 4px 12px; border-radius: 12px; font-weight: 800; font-size: 0.8rem; margin-bottom: 12px;">
-                            STATUS: {rec_status}
+                            STATUS: SAFE
                         </div>
                         <ul style="margin: 0; padding-left: 18px; font-size: 0.88rem; color: #ECFDF5; list-style-type: none; margin-bottom: 10px;">
                             {reasons_bullets}
                         </ul>
-                        <div style="font-size: 0.85rem; font-weight: 700; color: #D1FAE5; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 8px;">
-                            Proceed with operator confirmation.
-                        </div>
                     </div>
                     """, unsafe_allow_html=True)
 
                 else:
-                    cand_count = len(candidates)
-                    clearance_passed_count = sum(1 for c in clearance_results if (c.get("passed", False) or c.get("clearance", {}).get("passed", False)))
-
-                    if cand_count == 0:
-                        card_title = "🔴 NO LANDING CANDIDATE DETECTED"
-                        card_subtitle = "🔴 No landing candidate detected in the current frame."
-                    elif clearance_passed_count == 0:
-                        card_title = "🔴 NO SAFE LANDING ZONE"
-                        card_subtitle = "Candidate regions were detected, but none satisfy the selected drone's clearance requirement."
-                    else:
-                        card_title = "🔴 NO SAFE LANDING ZONE"
-                        card_subtitle = "Candidate zones were detected, but none satisfy the required safety threshold."
-
-                    highest_name = decision_res.get("highest_candidate") or (candidates[0].get("label") if candidates else "None")
-                    highest_score = decision_res.get("highest_score", 0)
-
-                    highest_info_html = ""
-                    if cand_count > 0:
-                        highest_info_html = f"""
-                        <div style="font-size: 1.05rem; font-weight: 700; color: #FFFFFF; margin-bottom: 4px;">
-                            Highest Candidate: <strong>{highest_name}</strong>
-                        </div>
-                        <div style="font-size: 1.25rem; font-weight: 800; color: #F8FAFC; margin-bottom: 10px;">
-                            Score: {highest_score} <span style="font-size: 0.85rem; color: #FCA5A5;">/ 100</span>
-                        </div>
-                        """
-
-                    st.markdown(f"""
+                    # Banner when NO candidate is SAFE
+                    st.markdown("""
                     <div style="background: linear-gradient(135deg, #7F1D1D 0%, #991B1B 100%); border: 1px solid #EF4444; border-radius: 14px; padding: 20px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(239,68,68,0.2);">
                         <div style="font-size: 0.9rem; font-weight: 800; color: #FCA5A5; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">
-                            {card_title}
+                            🔴 NO SAFE LANDING ZONE
                         </div>
-                        {highest_info_html}
                         <div style="font-size: 0.88rem; color: #FEE2E2; margin-bottom: 12px; line-height: 1.4;">
-                            {card_subtitle}
+                            None of the detected candidate zones currently satisfy both clearance and safety requirements.
                         </div>
                         <div style="background-color: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; padding: 10px 14px; color: #FEE2E2; font-size: 0.85rem; font-weight: 700;">
-                            Recommendation: Abort Landing / Continue Search
+                            Recommendation: Abort landing / continue searching.
                         </div>
                     </div>
                     """, unsafe_allow_html=True)
 
-                    # EMERGENCY MODE CANDIDATE DISPLAY
-                    em_cand = decision_res.get("emergency_candidate")
-                    if em_cand is not None:
-                        em_name = em_cand.get("label", highest_name)
-                        em_score = em_cand.get("score", 0)
-                        em_status = em_cand.get("status", "CAUTION")
-                        em_reason = decision_res.get("emergency_reason", "Candidate score is below the normal safety threshold.")
+                # 2. OPERATOR REVIEW SELECTION FEEDBACK
+                if st.session_state.get("selected_landing_zone"):
+                    sel_z = st.session_state["selected_landing_zone"]
+                    sel_lbl = sel_z.get("label", "Zone")
+                    is_em_sel = sel_z.get("is_emergency_candidate", False)
+                    
+                    if is_em_sel:
+                        st.warning(f"✅ Emergency candidate **{sel_lbl}** selected for operator review.\n\n*Final landing authority remains with the authorized operator/control system.*")
+                    else:
+                        st.success(f"✅ **{sel_lbl}** selected for operator review.\n\n*Final landing authority remains with the authorized operator/control system.*")
 
-                        em_status_clr = "#F59E0B" if em_status == "CAUTION" else "#EF4444"
+                # 3. CANDIDATE ZONE ACTION CARDS
+                st.markdown("#### 🎯 Candidate Zone Actions")
+                if ranked_zones:
+                    for idx, r_zone in enumerate(ranked_zones):
+                        z_label = r_zone.get("label", f"Zone {idx+1}")
+                        z_score = r_zone.get("score", 0)
+                        z_status = r_zone.get("status", "UNSAFE")
+                        z_reasons = r_zone.get("reasons", [])
 
-                        st.markdown(f"""
-                        <div style="background: linear-gradient(135deg, #78350F 0%, #92400E 100%); border: 1px solid #F59E0B; border-radius: 14px; padding: 18px; margin-bottom: 16px; box-shadow: 0 4px 12px rgba(245,158,11,0.2);">
-                            <div style="font-size: 0.85rem; font-weight: 800; color: #FDE68A; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 8px;">
-                                ⚠ EMERGENCY CANDIDATE ONLY
+                        clr_obj = next((c for c in clearance_results if c.get("label") == z_label), None)
+                        clr_passed = bool(clr_obj and (clr_obj.get("passed", False) or clr_obj.get("clearance", {}).get("passed", False)))
+                        clr_reason = clr_obj.get("clearance", {}).get("reason", "") if clr_obj else ""
+
+                        is_zone_safe = (clr_passed and z_score >= landing_engine.SAFE_THRESHOLD and z_status == "SAFE")
+                        is_recommended = (is_zone_safe and z_label == top_safe_label)
+
+                        primary_reason = z_reasons[0] if z_reasons else (clr_reason or "Clearance or safety threshold not satisfied.")
+
+                        if is_zone_safe:
+                            rec_badge_html = '<span style="background-color: #10B98122; border: 1px solid #10B981; color: #34D399; font-size: 0.75rem; font-weight: 800; padding: 2px 8px; border-radius: 8px; margin-left: 6px;">🏆 RECOMMENDED</span>' if is_recommended else ''
+                            
+                            st.markdown(f"""
+                            <div style="background-color: #064E3B22; border: 1px solid #10B981; border-radius: 12px; padding: 14px; margin-bottom: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <div style="font-size: 1.1rem; font-weight: 800; color: #FFFFFF;">
+                                        {z_label} — <span style="color: #34D399;">{z_score}/100</span> {rec_badge_html}
+                                    </div>
+                                    <div style="color: #10B981; font-weight: 800; font-size: 0.85rem;">🟢 SAFE</div>
+                                </div>
+                                <div style="font-size: 0.83rem; color: #A7F3D0; margin-bottom: 10px;">
+                                    ✓ {primary_reason}
+                                </div>
                             </div>
-                            <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px;">
-                                <div style="font-size: 1.4rem; font-weight: 800; color: #FFFFFF;">{em_name}</div>
-                                <div style="font-size: 1.25rem; font-weight: 800; color: #FDE68A;">{em_score} <span style="font-size: 0.8rem; color: #FCD34D;">/ 100</span></div>
+                            """, unsafe_allow_html=True)
+                            
+                            if st.button(f"SELECT {z_label}", key=f"btn_select_zone_{idx}_{z_label}", use_container_width=True, type="primary" if is_recommended else "secondary"):
+                                sel_info = dict(r_zone)
+                                sel_info["selected_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                sel_info["is_emergency_candidate"] = False
+                                st.session_state["selected_landing_zone"] = sel_info
+                                st.toast(f"✅ {z_label} selected for operator review.")
+                                st.rerun()
+
+                        elif z_status == "CAUTION" or (50 <= z_score < 80 and clr_passed):
+                            st.markdown(f"""
+                            <div style="background-color: #78350F22; border: 1px solid #F59E0B; border-radius: 12px; padding: 14px; margin-bottom: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <div style="font-size: 1.1rem; font-weight: 800; color: #FFFFFF;">
+                                        {z_label} — <span style="color: #FBBF24;">{z_score}/100</span>
+                                    </div>
+                                    <div style="color: #F59E0B; font-weight: 800; font-size: 0.85rem;">🟠 CAUTION</div>
+                                </div>
+                                <div style="font-size: 0.85rem; color: #FDE68A; font-weight: 700; margin-bottom: 4px;">
+                                    ⚠️ {z_label} is not eligible for normal landing.
+                                </div>
+                                <div style="font-size: 0.82rem; color: #FEF3C7;">
+                                    <strong>Reason:</strong> {primary_reason}
+                                </div>
                             </div>
-                            <div style="margin-bottom: 10px;">
-                                <span style="background-color: rgba(0,0,0,0.3); color: {em_status_clr}; border: 1px solid {em_status_clr}; padding: 3px 10px; border-radius: 10px; font-weight: 800; font-size: 0.78rem;">
-                                    STATUS: {em_status}
-                                </span>
+                            """, unsafe_allow_html=True)
+
+                        else:  # UNSAFE / REJECTED
+                            st.markdown(f"""
+                            <div style="background-color: #7F1D1D22; border: 1px solid #EF4444; border-radius: 12px; padding: 14px; margin-bottom: 12px;">
+                                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                                    <div style="font-size: 1.1rem; font-weight: 800; color: #FFFFFF;">
+                                        {z_label} — <span style="color: #FCA5A5;">{z_score}/100</span>
+                                    </div>
+                                    <div style="color: #EF4444; font-weight: 800; font-size: 0.85rem;">🔴 UNSAFE</div>
+                                </div>
+                                <div style="font-size: 0.85rem; color: #FCA5A5; font-weight: 700; margin-bottom: 4px;">
+                                    🔴 {z_label} cannot be selected for landing.
+                                </div>
+                                <div style="font-size: 0.82rem; color: #FEE2E2;">
+                                    <strong>Reason:</strong> {primary_reason}
+                                </div>
                             </div>
-                            <div style="font-size: 0.85rem; color: #FEF3C7; margin-bottom: 8px;">
-                                <strong>Reason:</strong> {em_reason}
-                            </div>
-                            <div style="font-size: 0.8rem; color: #FCD34D; font-style: italic; border-top: 1px solid rgba(255,255,255,0.15); padding-top: 6px;">
-                                This zone does NOT meet the normal SafeLand safety threshold.
-                            </div>
+                            """, unsafe_allow_html=True)
+
+                # EMERGENCY MODE CANDIDATE SELECTION (Only if Emergency Mode is ON and NO safe zone exists)
+                if emergency_mode and not has_safe_zone and ranked_zones:
+                    em_candidate = ranked_zones[0]
+                    em_label = em_candidate.get("label", "Zone")
+                    em_score = em_candidate.get("score", 0)
+                    em_status = em_candidate.get("status", "CAUTION")
+                    em_reason = em_candidate.get("reasons", ["Candidate score is below the normal safety threshold."])[0]
+
+                    st.markdown(f"""
+                    <div style="background: linear-gradient(135deg, #78350F 0%, #92400E 100%); border: 1px solid #F59E0B; border-radius: 12px; padding: 16px; margin-top: 16px; margin-bottom: 12px;">
+                        <div style="font-size: 0.85rem; font-weight: 800; color: #FDE68A; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px;">
+                            ⚠️ EMERGENCY CANDIDATE ONLY
                         </div>
-                        """, unsafe_allow_html=True)
+                        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px;">
+                            <div style="font-size: 1.25rem; font-weight: 800; color: #FFFFFF;">{em_label}</div>
+                            <div style="font-size: 1.1rem; font-weight: 800; color: #FDE68A;">{em_score} / 100</div>
+                        </div>
+                        <div style="font-size: 0.82rem; color: #FEF3C7; margin-bottom: 8px;">
+                            <strong>Reason:</strong> {em_reason}
+                        </div>
+                        <div style="font-size: 0.78rem; color: #FCD34D; font-style: italic;">
+                            This zone does NOT meet the normal SafeLand safety threshold.
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    if st.button("REVIEW EMERGENCY CANDIDATE", key=f"btn_em_review_select_{em_label}", use_container_width=True):
+                        em_sel_info = dict(em_candidate)
+                        em_sel_info["selected_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        em_sel_info["is_emergency_candidate"] = True
+                        st.session_state["selected_landing_zone"] = em_sel_info
+                        st.toast(f"✅ Emergency candidate {em_label} selected for operator review.")
+                        st.rerun()
 
                 st.caption("SafeLand AI provides landing decision support only. Final landing authority remains with the authorized operator/control system.")
 
@@ -2095,9 +2169,8 @@ elif st.session_state["current_page"] == "Settings":
     em_col1, em_col2 = st.columns([1, 2])
     with em_col1:
         current_em_state = bool(st.session_state.get("emergency_mode", False))
-        new_em_toggle = st.toggle("Emergency Landing Mode", value=current_em_state, key="settings_em_toggle")
-        st.session_state["emergency_mode"] = new_em_toggle
-        st.markdown(f"**Status:** `{'ACTIVE 🚨' if new_em_toggle else 'OFF (Normal)'}`")
+        st.markdown(f"**Status:** `{'ACTIVE 🚨' if current_em_state else 'OFF (Normal)'}`")
+        st.caption("Emergency Mode can be toggled using the 🚨 **Emergency Mode** switch in the left sidebar.")
     with em_col2:
         st.info("When **Emergency Mode** is ON, the system prioritizes the best available landing zone when normal safe-zone requirements cannot be satisfied. Hazard warnings must still remain visible.")
 
@@ -2205,7 +2278,7 @@ elif st.session_state["current_page"] == "Settings":
             </div>
             <div class="spec-item">
                 <div class="spec-label">Emergency Mode State</div>
-                <div class="spec-value" style="color: {'#F59E0B' if new_em_toggle else '#94A3B8'}; font-weight: 700;">{'ON 🚨' if new_em_toggle else 'OFF'}</div>
+                <div class="spec-value" style="color: {'#F59E0B' if current_em_state else '#94A3B8'}; font-weight: 700;">{'ON 🚨' if current_em_state else 'OFF'}</div>
             </div>
             <div class="spec-item">
                 <div class="spec-label">Mission Records</div>

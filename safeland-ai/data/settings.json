@@ -1,5 +1,5 @@
 {
-  "default_drone": "Rescue Drone",
+  "default_drone": "Delivery Drone",
   "estimated_ground_width_m": 15.5,
   "show_hazard_boxes": true,
   "show_zone_overlays": false,
